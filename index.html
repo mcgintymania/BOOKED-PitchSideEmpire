@@ -288,6 +288,7 @@ table{border-collapse:collapse;}
 .min-w-0{min-width:0px;}
 .gap-x-2{column-gap:0.5rem;}
 .gap-y-1\.5{row-gap:0.375rem;}
+.items-stretch{align-items:stretch;}
 
 </style>
 </head>
@@ -1974,7 +1975,7 @@ function App() {
     const [confirmingDeleteSlot, setConfirmingDeleteSlot] = useState(null);
     const [confirmingLoadSlot, setConfirmingLoadSlot] = useState(null);
     const [squadFilter, setSquadFilter] = useState({ pos: "all", sort: "overall" });
-    const [viewingPlayer, setViewingPlayer] = useState(null);
+    const [viewingPlayerId, setViewingPlayerId] = useState(null);
     const [renamingId, setRenamingId] = useState(null);
     const [confirmingRelease, setConfirmingRelease] = useState(false);
     const [confirmingRestart, setConfirmingRestart] = useState(false);
@@ -2417,7 +2418,7 @@ function App() {
     // gets a new array reference every tick even when nothing new happened — a cleanup-based
     // timeout would get cancelled by the very next tick before it ever had a chance to fire.
     const goalPopupTimeoutRef = useRef(null);
-    useEffect(() => { setPlayerProfileView("overview"); }, [viewingPlayer?.id]);
+    useEffect(() => { setPlayerProfileView("overview"); }, [viewingPlayerId]);
     useEffect(() => {
         if (!activeMatch) {
             lastEventCountRef.current = 0;
@@ -3584,7 +3585,7 @@ function App() {
             players: w.players.map((p) => (p.id === playerId ? { ...p, clubId: null, contractWeeks: null, releaseRequested: false, lowMoraleWeeks: 0 } : p)),
         }));
         setNews((n) => [{ id: uid("n"), text: `${club?.name} release ${player.name}${fee > 0 ? ` (£${fee.toLocaleString()} severance)` : " (no severance — he asked to leave)"}.`, clubIds: [player.clubId], week, season }, ...n].slice(0, 150));
-        setViewingPlayer(null);
+        setViewingPlayerId(null);
     }
     function boostMorale(playerId) {
         setWorld((w) => ({
@@ -3717,7 +3718,7 @@ function App() {
         setWorld((w) => ({
             ...w,
             clubs: w.clubs.map((c) => (c.id === clubId ? { ...c, freeAgentSignCount: (c.freeAgentSignCount || 0) + 1 } : c)),
-            players: w.players.map((p) => (p.id === playerId ? { ...p, clubId, contractWeeks: randInt(52, 156) } : p)),
+            players: w.players.map((p) => (p.id === playerId ? { ...p, clubId, contractWeeks: randInt(52, 156), wage: Math.round(50 + p.overall * p.overall * 0.11) } : p)),
         }));
         setNews((n) => [{ id: uid("n"), text: `${clubsById[clubId]?.name} signed a free agent.`, clubIds: [clubId], week, season }, ...n].slice(0, 150));
     }
@@ -4396,10 +4397,15 @@ function App() {
                     ? React.createElement("button", { onClick: continueFromHalftime, className: "w-full py-3 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "START SECOND HALF")
                     : React.createElement("button", { onClick: toggleMatchRunning, className: "w-full py-3 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: m.running ? C.red : C.amber, color: "#FFFFFF" } }, m.minute === 0 && !m.running ? "KICK OFF" : m.running ? "⏸ PAUSE" : "▶ RESUME")) : (React.createElement("button", { onClick: finalizeMatch, className: "w-full py-3 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "CONFIRM RESULT")))));
     }
-    if (viewingPlayer && world) {
+    if (viewingPlayerId && world) {
+        const viewingPlayer = world.players.find((p) => p.id === viewingPlayerId);
+        if (!viewingPlayer) {
+            setViewingPlayerId(null);
+            return null;
+        }
         return (React.createElement("div", { className: "min-h-full w-full p-4 sm:p-8", style: pageBg },
             React.createElement("div", { className: "max-w-lg mx-auto" },
-                React.createElement("button", { onClick: () => { setViewingPlayer(null); setRenamingId(null); setConfirmingRelease(false); setConfirmingExtension(false); setExtensionResult(null); }, className: "flex items-center gap-1.5 text-xs font-bold mb-3", style: { color: C.sub } },
+                React.createElement("button", { onClick: () => { setViewingPlayerId(null); setRenamingId(null); setConfirmingRelease(false); setConfirmingExtension(false); setExtensionResult(null); }, className: "flex items-center gap-1.5 text-xs font-bold mb-3", style: { color: C.sub } },
                     React.createElement(Ico, { e: "\u2190", size: 14 }),
                     " Back"),
                 React.createElement("div", { className: "rounded-lg p-5 w-full border", style: { backgroundColor: C.card, borderColor: C.border } },
@@ -4452,8 +4458,8 @@ function App() {
                                 React.createElement("div", { className: "text-lg font-black" }, viewingPlayer.position === "GK" ? viewingPlayer.saves : viewingPlayer.assists),
                                 React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, viewingPlayer.position === "GK" ? "SAVES" : "ASSISTS")),
                             React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
-                                React.createElement("div", { className: "text-lg font-black" }, formatMoney(viewingPlayer.wage)),
-                                React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, "WAGE/WK"))),
+                                React.createElement("div", { className: "text-lg font-black" }, formatMoney(viewingPlayer.wage || Math.round(50 + viewingPlayer.overall * viewingPlayer.overall * 0.11))),
+                                React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, viewingPlayer.clubId ? "WAGE/WK" : "EST. WAGE/WK"))),
                         React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-2" },
                             React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
                                 React.createElement("div", { className: "text-lg font-black" }, playerAvgRating(viewingPlayer) ? playerAvgRating(viewingPlayer).toFixed(2) : "—"),
@@ -4594,20 +4600,20 @@ function App() {
                 React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-2 mt-4", style: { color: "#8C7229" } }, "INDIVIDUAL HONOURS"),
                 React.createElement(AwardCard, { icon: "\uD83C\uDF1F", title: "PLAYER OF THE SEASON", name: rec?.playerOfSeason?.name, sub: rec?.playerOfSeason ? `${rec.playerOfSeason.motmCount} Man of the Match award${rec.playerOfSeason.motmCount === 1 ? "" : "s"}` : "", onClick: rec?.playerOfSeason ? () => { const p = world.players.find((pl) => pl.id === rec.playerOfSeason.id); if (p) {
                         setRoundupSeason(null);
-                        setViewingPlayer(p);
+                        setViewingPlayerId(p.id);
                     } } : null }),
                 React.createElement(AwardCard, { icon: "\uD83C\uDF93", title: "MANAGER OF THE SEASON", name: awards.bestManager?.name, sub: awards.bestManager ? `${clubsById[awards.bestManager.clubId]?.name} — ${awards.bestManager.ppg.toFixed(2)} points per game` : "", onClick: awards.bestManager ? () => setViewingManagerClubId(awards.bestManager.clubId) : null }),
                 React.createElement(AwardCard, { icon: "\u26BD", title: "TOP SCORER", name: awards.topScorer?.name, sub: awards.topScorer ? `${awards.topScorer.value} goals for ${clubsById[awards.topScorer.clubId]?.name}` : "", onClick: awards.topScorer ? () => { const p = world.players.find((pl) => pl.id === awards.topScorer.id); if (p) {
                         setRoundupSeason(null);
-                        setViewingPlayer(p);
+                        setViewingPlayerId(p.id);
                     } } : null }),
                 React.createElement(AwardCard, { icon: "\uD83C\uDFAF", title: "TOP ASSISTS", name: awards.topAssist?.name, sub: awards.topAssist ? `${awards.topAssist.value} assists for ${clubsById[awards.topAssist.clubId]?.name}` : "", onClick: awards.topAssist ? () => { const p = world.players.find((pl) => pl.id === awards.topAssist.id); if (p) {
                         setRoundupSeason(null);
-                        setViewingPlayer(p);
+                        setViewingPlayerId(p.id);
                     } } : null }),
                 React.createElement(AwardCard, { icon: "\uD83E\uDDE4", title: "MOST SAVES", name: awards.topSaves?.name, sub: awards.topSaves ? `${awards.topSaves.value} saves for ${clubsById[awards.topSaves.clubId]?.name}` : "", onClick: awards.topSaves ? () => { const p = world.players.find((pl) => pl.id === awards.topSaves.id); if (p) {
                         setRoundupSeason(null);
-                        setViewingPlayer(p);
+                        setViewingPlayerId(p.id);
                     } } : null }),
                 React.createElement(AwardCard, { icon: "\uD83D\uDCC8", title: "BEST WIN RATIO", name: awards.bestWinRatio ? clubsById[awards.bestWinRatio.clubId]?.name : null, sub: awards.bestWinRatio ? `${awards.bestWinRatio.won}/${awards.bestWinRatio.played} wins — ${Math.round(awards.bestWinRatio.ratio * 100)}%` : "" }),
                 React.createElement("button", { onClick: () => setRoundupSeason(null), className: "w-full py-3.5 mt-4 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: "#D8B968", color: "#3A2A0E" } },
@@ -4636,13 +4642,6 @@ function App() {
                     " ",
                     managerNames[activeIdx] ? `${managerNames[activeIdx]} — ` : "",
                     activeClub?.name)),
-                React.createElement("div", { className: "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] border", style: { borderColor: C.border, backgroundColor: C.card } },
-                    React.createElement(Ico, { e: "\uD83D\uDCC5", size: 13, color: C.amber }),
-                    React.createElement("span", { className: "font-bold" },
-                        "S",
-                        season,
-                        " \u00B7 Wk ",
-                        week)),
                 React.createElement("button", { onClick: () => setTab("finance"), className: "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] border", style: { borderColor: C.border, backgroundColor: C.card } },
                     React.createElement(Ico, { e: "\uD83D\uDCB0", size: 13, color: C.amber }),
                     React.createElement("span", { className: "font-bold" }, formatMoney(activeClub?.budget || 0))))),
@@ -4805,7 +4804,7 @@ function App() {
                             "\u26A0 SQUAD CONCERNS (",
                             unhappy.length,
                             ")"),
-                        React.createElement("div", { className: "space-y-1" }, unhappy.map((p) => (React.createElement("button", { key: p.id, onClick: () => setViewingPlayer(p), className: "w-full flex items-center justify-between text-xs" },
+                        React.createElement("div", { className: "space-y-1" }, unhappy.map((p) => (React.createElement("button", { key: p.id, onClick: () => setViewingPlayerId(p.id), className: "w-full flex items-center justify-between text-xs" },
                             React.createElement("span", { className: "font-semibold" }, p.name),
                             React.createElement("span", { style: { color: C.red } },
                                 "Wants a release \u2014 morale ",
@@ -4820,7 +4819,7 @@ function App() {
                             "Sort: ",
                             STAT_LABEL[k])))),
                 React.createElement("div", { className: "grid sm:grid-cols-2 gap-2" },
-                    squadPlayers.map((p) => (React.createElement("button", { key: p.id, onClick: () => setViewingPlayer(p), className: "rounded-lg p-3 border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
+                    squadPlayers.map((p) => (React.createElement("button", { key: p.id, onClick: () => setViewingPlayerId(p.id), className: "rounded-lg p-3 border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
                         React.createElement("div", { className: "font-bold text-sm mb-1", style: { color: C.text } },
                             p.name,
                             activeClub?.captainId === p.id && React.createElement("span", { className: "text-[9px] font-bold ml-1.5", style: { color: C.amber } }, "\u26A1 Captain"),
@@ -5054,8 +5053,8 @@ function App() {
                                 React.createElement("div", { className: "text-lg font-black" }, p.position === "GK" ? p.saves : p.assists),
                                 React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, p.position === "GK" ? "SAVES" : "ASSISTS")),
                             React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
-                                React.createElement("div", { className: "text-lg font-black" }, formatMoney(p.wage)),
-                                React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, "WAGE/WK"))),
+                                React.createElement("div", { className: "text-lg font-black" }, formatMoney(p.wage || Math.round(50 + p.overall * p.overall * 0.11))),
+                                React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, p.clubId ? "WAGE/WK" : "EST. WAGE/WK"))),
                         React.createElement("div", { className: "text-[10px] mb-4", style: { color: C.sub } },
                             p.clubId ? `Contracted to ${clubsById[p.clubId]?.name} — ${p.contractWeeks} weeks remaining` : "Free agent",
                             " \u00B7 Morale ",
@@ -5089,7 +5088,7 @@ function App() {
                                 " \u00B7 OVR ",
                                 p.overall,
                                 " \u00B7 ",
-                                formatMoney(p.wage),
+                                formatMoney(p.wage || Math.round(50 + p.overall * p.overall * 0.11)),
                                 "/wk")),
                         React.createElement("span", { style: { color: C.sub } }, "\u203A")))),
                     freeAgents.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "No free agents right now.")),
@@ -5188,7 +5187,7 @@ function App() {
                             }),
                             !cupObj?.champion && roundTies.ties.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Waiting on the next round to be drawn."))))));
             })(),
-            tab === "clubs" && world && (clubDetailId ? (React.createElement(ClubDetail, { club: clubsById[clubDetailId], squad: playersOfClub(clubDetailId), history: matchHistory.filter((h) => h.homeId === clubDetailId || h.awayId === clubDetailId), clubsById: clubsById, onBack: () => setClubDetailId(null), onSign: clubDetailId === activeClubId ? null : (p) => openNegotiation(p), onView: (p) => setViewingPlayer(p), week: week })) : (React.createElement("div", null,
+            tab === "clubs" && world && (clubDetailId ? (React.createElement(ClubDetail, { club: clubsById[clubDetailId], squad: playersOfClub(clubDetailId), history: matchHistory.filter((h) => h.homeId === clubDetailId || h.awayId === clubDetailId), clubsById: clubsById, onBack: () => setClubDetailId(null), onSign: clubDetailId === activeClubId ? null : (p) => openNegotiation(p), onView: (p) => setViewingPlayerId(p.id), week: week })) : (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, "ALL CLUBS"),
                 DIVISIONS_SEED.map((div) => (React.createElement("div", { key: div.id, className: "mb-4" },
                     React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.amber } }, div.name.toUpperCase()),
@@ -5227,7 +5226,7 @@ function App() {
                                 React.createElement("span", { className: "font-bold" }, rec.playerOfSeason ? `${rec.playerOfSeason.name} (${rec.playerOfSeason.motmCount} MOTM award${rec.playerOfSeason.motmCount === 1 ? "" : "s"})` : "Not enough matches watched this season"))));
                     })())) : (React.createElement("div", { className: "text-xs italic mb-4", style: { color: C.sub } }, "No seasons completed yet \u2014 finish Season 1 (22 weeks per division) to see it here.")),
                 React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "ALL-TIME TOP SCORERS"),
-                React.createElement("div", { className: "space-y-1 mb-4" }, [...world.players].sort((a, b) => b.goals - a.goals).slice(0, 15).map((p, i) => (React.createElement("button", { key: p.id, onClick: () => setViewingPlayer(p), className: "w-full flex items-center justify-between text-xs rounded-lg px-3 py-1.5 border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
+                React.createElement("div", { className: "space-y-1 mb-4" }, [...world.players].sort((a, b) => b.goals - a.goals).slice(0, 15).map((p, i) => (React.createElement("button", { key: p.id, onClick: () => setViewingPlayerId(p.id), className: "w-full flex items-center justify-between text-xs rounded-lg px-3 py-1.5 border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
                     React.createElement("span", null,
                         "#",
                         i + 1,
@@ -5243,7 +5242,7 @@ function App() {
                         " goals"))))),
                 React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "ALL-TIME TOP ASSISTS"),
                 React.createElement("div", { className: "space-y-1 mb-4" },
-                    [...world.players].sort((a, b) => (b.assists || 0) - (a.assists || 0)).slice(0, 15).map((p, i) => (React.createElement("button", { key: p.id, onClick: () => setViewingPlayer(p), className: "w-full flex items-center justify-between text-xs rounded-lg px-3 py-1.5 border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
+                    [...world.players].sort((a, b) => (b.assists || 0) - (a.assists || 0)).slice(0, 15).map((p, i) => (React.createElement("button", { key: p.id, onClick: () => setViewingPlayerId(p.id), className: "w-full flex items-center justify-between text-xs rounded-lg px-3 py-1.5 border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
                         React.createElement("span", null,
                             "#",
                             i + 1,
@@ -5260,7 +5259,7 @@ function App() {
                     world.players.every((p) => !p.assists) && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "None recorded yet.")),
                 React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "ALL-TIME MAN OF THE MATCH LEADERS"),
                 React.createElement("div", { className: "space-y-1 mb-4" },
-                    [...world.players].sort((a, b) => b.motmCareerCount - a.motmCareerCount).slice(0, 15).filter((p) => p.motmCareerCount > 0).map((p, i) => (React.createElement("button", { key: p.id, onClick: () => setViewingPlayer(p), className: "w-full flex items-center justify-between text-xs rounded-lg px-3 py-1.5 border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
+                    [...world.players].sort((a, b) => b.motmCareerCount - a.motmCareerCount).slice(0, 15).filter((p) => p.motmCareerCount > 0).map((p, i) => (React.createElement("button", { key: p.id, onClick: () => setViewingPlayerId(p.id), className: "w-full flex items-center justify-between text-xs rounded-lg px-3 py-1.5 border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
                         React.createElement("span", null,
                             "#",
                             i + 1,
@@ -5664,7 +5663,14 @@ function App() {
                         n.text))),
                     news.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nothing yet."))))),
         React.createElement("div", { className: "fixed bottom-0 left-0 right-0 z-40 border-t", style: { backgroundColor: "#FFFFFF", borderColor: C.border } },
-            React.createElement("div", { className: "max-w-4xl mx-auto flex" },
+            React.createElement("div", { className: "max-w-4xl mx-auto flex items-stretch" },
+                React.createElement("div", { className: "flex flex-col items-center justify-center gap-0.5 py-2.5", style: { width: 54, flexShrink: 0, color: C.sub, borderRight: `1px solid ${C.border}` } },
+                    React.createElement(Ico, { e: "\uD83D\uDCC5", size: 15, color: C.amber }),
+                    React.createElement("span", { className: "text-[8px] font-bold tracking-wide" },
+                        "S",
+                        season,
+                        "\u00B7W",
+                        week)),
                 React.createElement(TabButton, { active: tab === "play", onClick: () => setTab("play"), icon: "\u26BD", label: "Play" }),
                 React.createElement(TabButton, { active: tab === "squad", onClick: () => setTab("squad"), icon: "\uD83D\uDC65", label: "Squad" }),
                 React.createElement(TabButton, { active: tab === "club", onClick: () => setTab("club"), icon: "\uD83D\uDEE1\uFE0F", label: "Club" }),
