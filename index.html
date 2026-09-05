@@ -538,7 +538,7 @@ function scoutRefusalChance(scout, managerRep, wageMult) {
     return clamp(chance, 0.05, 0.92);
 }
 function generateScoutReport(scout, players, controlled) {
-    const pool = players.filter((p) => p.clubId === null || (p.clubId && !controlled.includes(p.clubId)));
+    const pool = players.filter((p) => (p.clubId === null && !p.retired) || (p.clubId && !controlled.includes(p.clubId)));
     let filtered;
     if (scout.specialty === "youth")
         filtered = pool.filter((p) => p.age <= 21);
@@ -668,6 +668,9 @@ function shuffle(arr) {
     return a;
 }
 function rollInjury() {
+    // A very rare, serious injury ends the player's career outright, regardless of age.
+    if (Math.random() < 0.006)
+        return { type: "Career-ending injury", weeksOut: 9999, careerEnding: true };
     const t = choice(INJURY_TYPES);
     return { type: t.name, weeksOut: randInt(t.range[0], t.range[1]) };
 }
@@ -895,23 +898,37 @@ function achievementContext({ world, controlled, clubsById, season, seasonHistor
 }
 function reconcileAiSquads(players, clubs, controlledIds) {
     let pool = [...players];
+    const budgetDeltas = {};
     const aiClubIds = clubs.filter((c) => !controlledIds.includes(c.id)).map((c) => c.id);
     aiClubIds.forEach((clubId) => {
         let squad = pool.filter((p) => p.clubId === clubId);
-        if (squad.length > 26) {
+        if (squad.length > 30) {
             const sorted = [...squad].sort((a, b) => a.overall - b.overall);
-            const toRelease = new Set(sorted.slice(0, squad.length - 22).map((p) => p.id));
+            const toRelease = new Set(sorted.slice(0, squad.length - 26).map((p) => p.id));
             pool = pool.map((p) => (toRelease.has(p.id) ? { ...p, clubId: null, contractWeeks: null } : p));
             squad = pool.filter((p) => p.clubId === clubId);
         }
         if (squad.length < 18) {
             const need = 18 - squad.length;
-            const agentsSorted = pool.filter((p) => p.clubId === null).sort((a, b) => b.overall - a.overall);
-            const toSign = new Set(agentsSorted.slice(0, need).map((p) => p.id));
-            pool = pool.map((p) => (toSign.has(p.id) ? { ...p, clubId, contractWeeks: randInt(52, 156) } : p));
+            // Genuinely available transfer-listed players (from clubs willing to sell) get first look —
+            // this is the actual route by which your own listed players get picked up by a rival,
+            // rather than AI clubs only ever topping up from free agents. A real fee changes hands.
+            const listedSorted = pool.filter((p) => p.clubId && p.clubId !== clubId && p.transferListed && !controlledIds.includes(p.clubId)).sort((a, b) => b.overall - a.overall);
+            const agentsSorted = pool.filter((p) => p.clubId === null && !p.retired).sort((a, b) => b.overall - a.overall);
+            const candidates = [...listedSorted, ...agentsSorted].slice(0, need);
+            const toSign = new Set(candidates.map((p) => p.id));
+            pool = pool.map((p) => {
+                if (!toSign.has(p.id))
+                    return p;
+                if (p.transferListed && p.clubId) {
+                    const fee = Math.round(transferFee(p) * 0.85);
+                    budgetDeltas[p.clubId] = (budgetDeltas[p.clubId] || 0) + fee;
+                }
+                return { ...p, clubId, contractWeeks: randInt(52, 156), transferListed: false };
+            });
         }
     });
-    return pool;
+    return { players: pool, budgetDeltas };
 }
 function generateDebutBatch(existingPlayers, count) {
     const usedNames = new Set(existingPlayers.map((p) => p.name));
@@ -1087,6 +1104,15 @@ function bestXI(players, formation) {
     }
     return xi;
 }
+function applyFatiguePenalty(p) {
+    const fatigue = p.fatigue || 0;
+    if (fatigue <= 50)
+        return p;
+    // Fatigue only starts biting past the halfway mark, but climbs quickly after that — by the
+    // time someone's been ever-present for 5-6 games straight with no rest, it's a real hit.
+    const penalty = Math.round((fatigue - 50) * 0.4);
+    return { ...p, overall: Math.max(1, p.overall - penalty), fatigued: true };
+}
 function xiFromLineup(club, squadPlayers) {
     const slots = (FORMATIONS[club.formation] || FORMATIONS["4-4-2"]).slots;
     const lineup = club.lineup || {};
@@ -1099,7 +1125,8 @@ function xiFromLineup(club, squadPlayers) {
             // Out of position is allowed — a manager short of recognised strikers can push a
             // midfielder up front — but they're visibly less effective there, not equally good.
             const outOfPosition = p.position !== slot.pos;
-            chosen.push(outOfPosition ? { ...p, overall: Math.max(1, Math.round(p.overall * 0.88)), outOfPosition: true, naturalPosition: p.position } : p);
+            const withPosition = outOfPosition ? { ...p, overall: Math.max(1, Math.round(p.overall * 0.88)), outOfPosition: true, naturalPosition: p.position } : p;
+            chosen.push(applyFatiguePenalty(withPosition));
             usedIds.add(p.id);
         }
     });
@@ -1107,7 +1134,7 @@ function xiFromLineup(club, squadPlayers) {
         const remaining = squadPlayers.filter((p) => !usedIds.has(p.id) && !p.injuredWeeks && !p.suspendedMatches).sort((a, b) => b.overall - a.overall);
         let idx = 0;
         while (chosen.length < 11 && idx < remaining.length) {
-            chosen.push(remaining[idx]);
+            chosen.push(applyFatiguePenalty(remaining[idx]));
             usedIds.add(remaining[idx].id);
             idx++;
         }
@@ -1678,8 +1705,17 @@ function refusalChance(player, sellerSquad, sellerClub, buyerClub, mult) {
         ch += 0.25;
     if (sellerSquad.length < 16)
         ch += 0.15;
-    if (buyerClub && sellerClub && buyerClub.tier < sellerClub.tier - 1)
-        ch += 0.2;
+    if (buyerClub && sellerClub) {
+        // A gap of more than 2 tiers (e.g. Division One down to Sunday League) isn't just "unlikely" —
+        // established players simply don't drop that far, so it's a hard no rather than a bad-odds yes.
+        const gap = sellerClub.tier - buyerClub.tier;
+        if (gap >= 3)
+            return 1;
+        if (gap === 2)
+            ch += 0.45;
+        else if (gap === 1)
+            ch += 0.2;
+    }
     return clamp(ch, 0.03, 0.95);
 }
 function timeAgo(ts) {
@@ -1733,6 +1769,12 @@ function TabButton({ active, onClick, icon, label }) {
         React.createElement(Ico, { e: icon, size: 19 }),
         React.createElement("span", { className: "text-[9px] font-bold tracking-wide" }, label.toUpperCase())));
 }
+function hashStr(s) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++)
+        h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return h;
+}
 function clubColor(clubId) {
     let hash = 0;
     for (let i = 0; i < clubId.length; i++)
@@ -1757,24 +1799,53 @@ function StatBar({ label, value }) {
             React.createElement("div", { className: "h-full", style: { width: `${value}%`, background: `linear-gradient(90deg, ${C.green}, ${C.amber})` } }))));
 }
 function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosition, homeName, awayName }) {
-    const homeSlots = (FORMATIONS[homeFormation] || FORMATIONS["4-4-2"]).slots;
-    const awaySlots = (FORMATIONS[awayFormation] || FORMATIONS["4-4-2"]).slots;
-    const homeDots = homeSlots.map((slot, i) => ({ player: homeXI[i], x: (slot.y / 100) * 46 + 2, y: slot.x }));
-    const awayDots = awaySlots.map((slot, i) => ({ player: awayXI[i], x: 98 - ((slot.y / 100) * 46 + 2), y: slot.x }));
-    const ballLeft = 50 + (ballPosition ?? 0) / 2;
+    // Group by each player's own actual position rather than trusting index alignment with the
+    // formation's slot list — if any lineup slot was empty (injury, gap, etc.) every player after
+    // it shifts by one index, which was silently scrambling who got grouped where. Grouping by the
+    // player's real position sidesteps that entirely, however the underlying XI array is built.
+    function buildColumns(xi, xForPos) {
+        const groups = { GK: [], DF: [], MF: [], FW: [] };
+        (xi || []).forEach((player) => { if (player && groups[player.position])
+            groups[player.position].push(player); });
+        const dots = [];
+        ["GK", "DF", "MF", "FW"].forEach((pos) => {
+            const list = groups[pos];
+            const n = list.length;
+            list.forEach((player, i) => {
+                const y = n === 1 ? 50 : 10 + i * (80 / (n - 1));
+                dots.push({ player, x: xForPos[pos], y });
+            });
+        });
+        return dots;
+    }
+    // Forward lines are pushed just past the halfway line into the opponent's own third — a
+    // genuine crossing-over rather than two teams boxed into their own half — while still keeping
+    // every column at a distinct x so dots can never collide.
+    const homeDots = buildColumns(homeXI, { GK: 5, DF: 20, MF: 38, FW: 58 }).map((d) => ({ ...d, team: "home" }));
+    const awayDots = buildColumns(awayXI, { GK: 95, DF: 80, MF: 62, FW: 42 }).map((d) => ({ ...d, team: "away" }));
+    const allDots = [...homeDots, ...awayDots];
+    const targetLeft = 50 + (ballPosition ?? 0) / 2;
+    // Snap the ball to whichever player sits closest to that point on the pitch, weighting
+    // horizontal distance much more heavily than vertical — so it tracks the run of play
+    // left-to-right, but among near-ties it favors players nearer vertical center rather than
+    // flying off to whichever player happens to be at the very top or bottom of a column.
+    let nearest = null, bestDist = Infinity;
+    allDots.forEach((d) => { const dist = Math.abs(d.x - targetLeft) * 3 + Math.abs(d.y - 50); if (dist < bestDist) {
+        bestDist = dist;
+        nearest = d;
+    } });
+    const ballLeft = nearest ? nearest.x : targetLeft;
+    const ballTop = nearest ? nearest.y : 50;
     return (React.createElement("div", { className: "rounded-lg overflow-hidden border", style: { backgroundColor: "#2E7D4F", borderColor: C.border } },
-        React.createElement("div", { className: "relative", style: { height: 220 } },
-            React.createElement("div", { className: "absolute inset-y-0 left-0", style: { width: "50%", borderRight: "2px solid rgba(255,255,255,0.35)" } }),
-            React.createElement("div", { style: { position: "absolute", top: "50%", left: "50%", width: 46, height: 46, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.35)", transform: "translate(-50%,-50%)" } }),
-            React.createElement("div", { className: "absolute", style: { left: 3, top: "30%", width: 10, height: "40%", border: "2px solid rgba(255,255,255,0.35)", borderLeft: "none" } }),
-            React.createElement("div", { className: "absolute", style: { right: 3, top: "30%", width: 10, height: "40%", border: "2px solid rgba(255,255,255,0.35)", borderRight: "none" } }),
-            homeDots.map((d, i) => d.player && (React.createElement("div", { key: `h-${i}`, className: "absolute flex flex-col items-center", style: { left: `${d.x}%`, top: `${100 - d.y}%`, transform: "translate(-50%,-50%)" } },
-                React.createElement("div", { className: "rounded-full flex items-center justify-center text-[8px] font-black", style: { width: 16, height: 16, backgroundColor: C.green, border: "1.5px solid #FFFFFF", color: "#FFFFFF" } }, d.player.jerseyNumber ?? ""),
+        React.createElement("div", { className: "relative", style: { height: 300 } },
+            React.createElement("div", { className: "absolute inset-y-0", style: { left: "50%", borderLeft: "2px solid rgba(255,255,255,0.35)" } }),
+            React.createElement("div", { style: { position: "absolute", top: "50%", left: "50%", width: 60, height: 60, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.35)", transform: "translate(-50%,-50%)" } }),
+            React.createElement("div", { className: "absolute", style: { left: 2, top: "28%", width: 8, height: "44%", border: "2px solid rgba(255,255,255,0.35)", borderLeft: "none" } }),
+            React.createElement("div", { className: "absolute", style: { right: 2, top: "28%", width: 8, height: "44%", border: "2px solid rgba(255,255,255,0.35)", borderRight: "none" } }),
+            allDots.map((d, i) => (React.createElement("div", { key: `${d.team}-${i}`, className: "absolute flex flex-col items-center", style: { left: `${d.x}%`, top: `${d.y}%`, transform: "translate(-50%,-50%)" } },
+                React.createElement("div", { className: "rounded-full flex items-center justify-center text-[8px] font-black", style: { width: 17, height: 17, backgroundColor: d.team === "home" ? C.green : C.amber, border: "1.5px solid #FFFFFF", color: "#FFFFFF" } }, d.player.jerseyNumber ?? ""),
                 React.createElement("div", { className: "text-[7px] font-bold text-white mt-0.5 whitespace-nowrap", style: { textShadow: "0 0 2px rgba(0,0,0,0.8)" } }, d.player.name.split(" ").slice(-1)[0])))),
-            awayDots.map((d, i) => d.player && (React.createElement("div", { key: `a-${i}`, className: "absolute flex flex-col items-center", style: { left: `${d.x}%`, top: `${100 - d.y}%`, transform: "translate(-50%,-50%)" } },
-                React.createElement("div", { className: "rounded-full flex items-center justify-center text-[8px] font-black", style: { width: 16, height: 16, backgroundColor: C.amber, border: "1.5px solid #FFFFFF", color: "#FFFFFF" } }, d.player.jerseyNumber ?? ""),
-                React.createElement("div", { className: "text-[7px] font-bold text-white mt-0.5 whitespace-nowrap", style: { textShadow: "0 0 2px rgba(0,0,0,0.8)" } }, d.player.name.split(" ").slice(-1)[0])))),
-            React.createElement("div", { style: { position: "absolute", top: "50%", left: `${ballLeft}%`, transform: "translate(-50%, -50%)", transition: "left 1.2s linear", fontSize: 18, zIndex: 10 } }, "\u26BD")),
+            React.createElement("div", { style: { position: "absolute", top: `${ballTop}%`, left: `${ballLeft}%`, transform: "translate(-50%, -140%)", transition: "left 1.2s linear, top 1.2s linear", fontSize: 16, zIndex: 10 } }, "\u26BD")),
         React.createElement("div", { className: "flex items-center justify-between px-3 py-1.5 text-[9px] font-bold", style: { backgroundColor: "rgba(0,0,0,0.2)", color: "#FFFFFF" } },
             React.createElement("span", null,
                 React.createElement("span", { className: "inline-block rounded-full mr-1", style: { width: 8, height: 8, backgroundColor: C.green } }),
@@ -1898,10 +1969,12 @@ function ReadOnlyPitch({ club, squadPlayers }) {
             const pid = lineup[slot.id];
             const player = pid ? squadPlayers.find((p) => p.id === pid) : null;
             const unavailable = player && (player.injuredWeeks > 0 || player.suspendedMatches > 0);
+            const tired = player && !unavailable && (player.fatigue || 0) > 50;
             return (React.createElement("div", { key: slot.id, className: "absolute flex flex-col items-center", style: { left: `${slot.x}%`, top: `${100 - slot.y}%`, transform: "translate(-50%, -50%)" } },
                 React.createElement("div", { className: "relative" },
-                    React.createElement("div", { className: "rounded-full flex items-center justify-center text-[9px] font-bold border-2", style: { width: 28, height: 28, backgroundColor: player ? "#FFFFFF" : "rgba(255,255,255,0.2)", borderColor: unavailable ? C.red : "#FFFFFF", color: player ? C.greenDark : "#FFFFFF" } }, player ? (player.jerseyNumber ?? player.overall) : slot.pos),
-                    unavailable && React.createElement("span", { className: "absolute", style: { top: -4, right: -4, fontSize: 11 } }, player.injuredWeeks > 0 ? "🩹" : "🟥")),
+                    React.createElement("div", { className: "rounded-full flex items-center justify-center text-[9px] font-bold border-2", style: { width: 28, height: 28, backgroundColor: player ? "#FFFFFF" : "rgba(255,255,255,0.2)", borderColor: unavailable ? C.red : tired ? C.amber : "#FFFFFF", color: player ? C.greenDark : "#FFFFFF" } }, player ? (player.jerseyNumber ?? player.overall) : slot.pos),
+                    unavailable && React.createElement("span", { className: "absolute", style: { top: -4, right: -4, fontSize: 11 } }, player.injuredWeeks > 0 ? "🩹" : "🟥"),
+                    tired && React.createElement("span", { className: "absolute", style: { top: -4, right: -4, fontSize: 11 } }, "\uD83E\uDD75")),
                 React.createElement("div", { className: "text-[7px] font-bold text-white mt-0.5 max-w-[60px] truncate" }, player ? player.name.split(" ").slice(-1)[0] : "Empty")));
         })));
 }
@@ -1921,14 +1994,17 @@ function Pitch({ club, squadPlayers, onAssign }) {
                 const player = pid ? squadPlayers.find((p) => p.id === pid) : null;
                 const outOfPosition = player && player.position !== slot.pos;
                 const unavailable = player && (player.injuredWeeks > 0 || player.suspendedMatches > 0);
+                const tired = player && !unavailable && (player.fatigue || 0) > 50;
                 return (React.createElement("button", { key: slot.id, onClick: () => setOpenSlot(slot.id), className: "absolute flex flex-col items-center", style: { left: `${slot.x}%`, top: `${100 - slot.y}%`, transform: "translate(-50%, -50%)" } },
                     React.createElement("div", { className: "relative" },
-                        React.createElement("div", { className: "rounded-full flex items-center justify-center text-[10px] font-bold border-2", style: { width: 34, height: 34, backgroundColor: player ? "#FFFFFF" : "rgba(255,255,255,0.25)", borderColor: unavailable ? C.red : outOfPosition ? C.amber : "#FFFFFF", color: player ? C.greenDark : "#FFFFFF" } }, player ? player.overall : slot.pos),
-                        unavailable && React.createElement("span", { className: "absolute", style: { top: -4, right: -4, fontSize: 12 } }, player.injuredWeeks > 0 ? "🩹" : "🟥")),
+                        React.createElement("div", { className: "rounded-full flex items-center justify-center text-[10px] font-bold border-2", style: { width: 34, height: 34, backgroundColor: player ? "#FFFFFF" : "rgba(255,255,255,0.25)", borderColor: unavailable ? C.red : outOfPosition ? C.amber : tired ? C.amber : "#FFFFFF", color: player ? C.greenDark : "#FFFFFF" } }, player ? player.overall : slot.pos),
+                        unavailable && React.createElement("span", { className: "absolute", style: { top: -4, right: -4, fontSize: 12 } }, player.injuredWeeks > 0 ? "🩹" : "🟥"),
+                        tired && React.createElement("span", { className: "absolute", style: { top: -4, right: -4, fontSize: 12 } }, "\uD83E\uDD75")),
                     React.createElement("div", { className: "text-[8px] font-bold text-white mt-0.5 max-w-[64px] truncate" },
                         player ? player.name.split(" ").slice(-1)[0] : "Empty",
                         outOfPosition ? " ⚠" : "",
-                        unavailable ? (player.injuredWeeks > 0 ? " OUT" : " SUSP") : "")));
+                        unavailable ? (player.injuredWeeks > 0 ? " OUT" : " SUSP") : "",
+                        tired ? " TIRED" : "")));
             })),
         openSlot && (React.createElement("div", { className: "mt-3 rounded-lg p-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
             React.createElement("div", { className: "text-[10px] font-bold mb-2", style: { color: C.sub } },
@@ -2119,6 +2195,7 @@ function App() {
     const [news, setNews] = useState([]);
     const [newsFilter, setNewsFilter] = useState("all");
     const [historySeasonSel, setHistorySeasonSel] = useState(null);
+    const [statsFilter, setStatsFilter] = useState({ season: "all", divisionId: "all", clubId: "all", stat: "goals" });
     const [saveMsg, setSaveMsg] = useState("");
     const [saveSlots, setSaveSlots] = useState([]);
     const [currentSlotId, setCurrentSlotId] = useState(null);
@@ -2190,7 +2267,23 @@ function App() {
     const activeClubId = controlled[activeIdx];
     const activeClub = clubsById[activeClubId];
     const playersOfClub = useCallback((clubId) => (world ? world.players.filter((p) => p.clubId === clubId) : []), [world]);
-    const freeAgents = useMemo(() => (world ? world.players.filter((p) => p.clubId === null) : []), [world]);
+    const freeAgents = useMemo(() => (world ? world.players.filter((p) => p.clubId === null && !p.retired) : []), [world]);
+    // A club shouldn't be able to browse — let alone realistically sign — free agents way above
+    // their level. Each division has its own quality ceiling here, and on top of that only a
+    // rotating subset actually shows up each week, so the market feels like something to check in
+    // on regularly rather than a static list of everyone available at once.
+    const DIVISION_FA_CAPS = [99, 84, 76, 68, 60];
+    const visibleFreeAgents = useMemo(() => {
+        if (!activeClub)
+            return freeAgents;
+        const divIdx = DIVISIONS_SEED.findIndex((d) => d.id === activeClub.divisionId);
+        const seasonCap = season >= 2 ? 99 : 84;
+        const cap = Math.min(DIVISION_FA_CAPS[divIdx] ?? 99, seasonCap);
+        const pool = freeAgents.filter((p) => p.overall <= cap);
+        const seed = (week * 2654435761) >>> 0;
+        const shuffled = [...pool].sort((a, b) => ((hashStr(a.id) ^ seed) >>> 0) - ((hashStr(b.id) ^ seed) >>> 0));
+        return shuffled.slice(0, 18);
+    }, [freeAgents, activeClub?.divisionId, week, season]);
     /* ---------- setup ---------- */
     function restartGame() {
         // Detaches from the current save slot and returns to setup — but doesn't delete anything.
@@ -2229,15 +2322,16 @@ function App() {
         setConfirmingRestart(false);
         setPhase("setup");
     }
-    function startGame() {
+    function startGame(forceEmpty) {
         setCurrentSlotId(null); // fresh game — autosave will mint a brand new slot on the first save
+        const selection = forceEmpty ? [] : setupSelection;
         const w = generateWorld();
         w.clubs = w.clubs.map((c) => {
             if (c.isCustomSlot) {
-                const finalName = (setupSelection.includes(c.id) && customTeamName.trim()) ? customTeamName.trim().slice(0, 30) : "Millfield Town";
+                const finalName = (selection.includes(c.id) && customTeamName.trim()) ? customTeamName.trim().slice(0, 30) : "Millfield Town";
                 c = { ...c, name: finalName };
             }
-            if (!setupSelection.includes(c.id))
+            if (!selection.includes(c.id))
                 return c;
             // Formation starts unset — you choose it yourself before your first match, rather than
             // every club defaulting to 4-4-2. Squad stays picked, but there's no lineup until a
@@ -2265,7 +2359,7 @@ function App() {
         // available for any other club (human or AI) to hire from that point on.
         const firedNames = [];
         const managersAfterHire = w.managers.map((mg) => {
-            if (setupSelection.includes(mg.clubId)) {
+            if (selection.includes(mg.clubId)) {
                 firedNames.push(mg.name);
                 return { ...mg, clubId: null };
             }
@@ -2281,10 +2375,12 @@ function App() {
         setSeasonHistory([]);
         setWeek(1);
         setSeason(1);
-        setControlled(setupSelection);
+        setControlled(selection);
         setActiveIdx(0);
         setTab("play");
-        const startNews = [{ id: uid("n"), text: `Season 1 kicks off! ${setupSelection.map((id) => w.clubs.find((c) => c.id === id).name).join(" and ")} take charge.`, clubIds: setupSelection, week: 1, season: 1 }];
+        const startNews = selection.length
+            ? [{ id: uid("n"), text: `Season 1 kicks off! ${selection.map((id) => w.clubs.find((c) => c.id === id).name).join(" and ")} take charge.`, clubIds: selection, week: 1, season: 1 }]
+            : [{ id: uid("n"), text: `Season 1 kicks off! You're starting out of work — browse the job market whenever you're ready to take charge somewhere.`, clubIds: [], week: 1, season: 1 }];
         firedNames.forEach((name) => startNews.push({ id: uid("n"), text: `${name} is relieved of their duties as the new owners take over — available for any club to hire.`, clubIds: [], week: 1, season: 1 }));
         setNews(startNews);
         setPhase("game");
@@ -2305,6 +2401,26 @@ function App() {
         setControlled((c) => c.map((cid) => (cid === sackedClubId ? newClubId : cid)));
         setActiveIdx(controlled.indexOf(sackedClubId) >= 0 ? controlled.indexOf(sackedClubId) : 0);
         setSackedClubId(null);
+        setTab("play");
+    }
+    function spectateForNow() {
+        // null in a controlled slot means "unemployed" — the league keeps running, weeks keep
+        // advancing, nothing is blocked waiting on a fixture that will never exist for this slot.
+        setControlled((c) => c.map((cid) => (cid === sackedClubId ? null : cid)));
+        setSackedClubId(null);
+        setTab("play");
+    }
+    function acceptSpectatorJob(newClubId) {
+        setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === newClubId ? { ...c, formation: null, lineup: {}, managerId: null } : c)) }));
+        setControlled((c) => {
+            const idx = c.indexOf(null);
+            if (idx === -1)
+                return c;
+            const next = [...c];
+            next[idx] = newClubId;
+            return next;
+        });
+        setActiveIdx(controlled.indexOf(null) >= 0 ? controlled.indexOf(null) : 0);
         setTab("play");
     }
     function acceptJobOffer() {
@@ -3030,7 +3146,7 @@ function App() {
                         np = { ...np, motmCareerCount: np.motmCareerCount + 1, motmSeasonCount: np.motmSeasonCount + 1 };
                 }
                 if (injuryMap[p.id])
-                    np = { ...np, injuredWeeks: injuryMap[p.id].weeksOut, injuryType: injuryMap[p.id].type, morale: clamp(np.morale - 6, 0, 100) };
+                    np = injuryMap[p.id].careerEnding ? { ...np, injuredWeeks: 0, injuryType: null, clubId: null, retired: true, retiredAge: np.age, morale: clamp(np.morale - 6, 0, 100) } : { ...np, injuredWeeks: injuryMap[p.id].weeksOut, injuryType: injuryMap[p.id].type, morale: clamp(np.morale - 6, 0, 100) };
                 if (cardMap[p.id]) {
                     const c = cardMap[p.id];
                     const newYellowSeason = (np.yellowCardsSeason || 0) + c.yellows;
@@ -3121,7 +3237,7 @@ function App() {
                             np = { ...np, motmCareerCount: (np.motmCareerCount || 0) + 1, motmSeasonCount: (np.motmSeasonCount || 0) + 1 };
                     }
                     if (injuryMap[p.id])
-                        np = { ...np, injuredWeeks: injuryMap[p.id].weeksOut, injuryType: injuryMap[p.id].type };
+                        np = injuryMap[p.id].careerEnding ? { ...np, injuredWeeks: 0, injuryType: null, clubId: null, retired: true, retiredAge: np.age } : { ...np, injuredWeeks: injuryMap[p.id].weeksOut, injuryType: injuryMap[p.id].type };
                     return np;
                 });
                 players = applyCardBatch(players, sim.cards);
@@ -3280,7 +3396,7 @@ function App() {
                     np = { ...np, motmCareerCount: (np.motmCareerCount || 0) + 1, motmSeasonCount: (np.motmSeasonCount || 0) + 1 };
             }
             if (injuryMap[p.id])
-                np = { ...np, injuredWeeks: injuryMap[p.id].weeksOut, injuryType: injuryMap[p.id].type };
+                np = injuryMap[p.id].careerEnding ? { ...np, injuredWeeks: 0, injuryType: null, clubId: null, retired: true, retiredAge: np.age } : { ...np, injuredWeeks: injuryMap[p.id].weeksOut, injuryType: injuryMap[p.id].type };
             return np;
         });
         newPlayers = applyCardBatch(newPlayers, sim.cards);
@@ -3615,9 +3731,11 @@ function App() {
             const debutCount = 24;
             const debutBatch = generateDebutBatch(developedPlayers, debutCount);
             setNews((n) => [{ id: uid("n"), text: `${debutCount} young players have entered the game as free agents ahead of Season ${season + 1} — mostly squad hopefuls, but scouts say one or two look promising.`, clubIds: [], week: newWeek, season }, ...n].slice(0, 150));
-            // AI clubs tidy up their own squads — releasing surplus players, topping up if short.
-            const balancedPlayers = reconcileAiSquads([...developedPlayers, ...debutBatch], newClubs, controlled);
-            return { ...w, clubs: newClubs, players: balancedPlayers };
+            // AI clubs tidy up their own squads — releasing surplus players, topping up if short,
+            // paying a real fee if it's picking up someone's transfer-listed player.
+            const { players: balancedPlayers, budgetDeltas } = reconcileAiSquads([...developedPlayers, ...debutBatch], newClubs, controlled);
+            const finalClubs = newClubs.map((c) => (budgetDeltas[c.id] ? { ...c, budget: c.budget + budgetDeltas[c.id] } : c));
+            return { ...w, clubs: finalClubs, players: balancedPlayers };
         });
         setSeason((s) => s + 1);
         setWeek(1);
@@ -3727,6 +3845,14 @@ function App() {
                 if (np.clubId && np.lastPlayedWeek !== week) {
                     np = { ...np, morale: clamp(np.morale - 1, 0, 100) };
                 }
+                // match fatigue builds up over consecutive starts and only meaningfully recovers with an
+                // actual rest week — separate from in-match stamina (which resets every game), this is
+                // what should eventually force genuine squad rotation over a season.
+                if (np.clubId) {
+                    np = np.lastPlayedWeek === week
+                        ? { ...np, fatigue: clamp((np.fatigue || 0) + 18, 0, 100), consecutiveApps: (np.consecutiveApps || 0) + 1 }
+                        : { ...np, fatigue: clamp((np.fatigue || 0) - 35, 0, 100), consecutiveApps: 0 };
+                }
                 // sustained low morale leads to a release request — the manager can grant it fee-free or ignore it
                 if (np.clubId) {
                     if (np.morale < 25) {
@@ -3768,10 +3894,12 @@ function App() {
         setWorld((w) => ({ ...w, players: applyTraining(w.players, clubsById) }));
         // board confidence — nudges a little every week based on that week's result (so it feels
         // alive, not just something that jumps at season review), plus a slow drain if you're sat
-        // in the relegation zone deep into the season.
-        setWorld((w) => ({
-            ...w,
-            clubs: w.clubs.map((c) => {
+        // in the relegation zone deep into the season, and a much sharper drain if you're in the red.
+        // Staying in debt for a month straight means the board stops asking and just sells someone.
+        const forcedSaleNews = [];
+        setWorld((w) => {
+            const newPlayers = [...w.players];
+            const newClubs = w.clubs.map((c) => {
                 if (!controlled.includes(c.id))
                     return c;
                 const divRows = w.clubs.filter((cc) => cc.divisionId === c.divisionId).sort((a, b) => b.pts - a.pts || (b.gf - b.ga) - (a.gf - a.ga));
@@ -3785,10 +3913,28 @@ function App() {
                     const ga = isHome ? myFixture.awayGoals : myFixture.homeGoals;
                     resultDelta = gf > ga ? 1 : gf < ga ? -1 : 0;
                 }
-                const delta = (inDangerZone ? -1 : 0) + resultDelta;
-                return { ...c, boardConfidence: clamp((c.boardConfidence ?? 62) + delta, 0, 100), boardConfidenceLastDelta: delta };
-            }),
-        }));
+                const inDebt = c.budget < 0;
+                const weeksInDebt = inDebt ? (c.weeksInDebt || 0) + 1 : 0;
+                const delta = (inDangerZone ? -1 : 0) + resultDelta + (inDebt ? -3 : 0);
+                let updated = { ...c, boardConfidence: clamp((c.boardConfidence ?? 62) + delta, 0, 100), boardConfidenceLastDelta: delta, weeksInDebt };
+                if (weeksInDebt >= 4) {
+                    const squad = w.players.filter((p) => p.clubId === c.id);
+                    const target = [...squad].sort((a, b) => transferFee(b) - transferFee(a))[0];
+                    if (target) {
+                        const fee = Math.round(transferFee(target) * 0.75);
+                        const idx = newPlayers.findIndex((p) => p.id === target.id);
+                        if (idx >= 0)
+                            newPlayers[idx] = { ...newPlayers[idx], clubId: null, contractWeeks: null };
+                        updated = { ...updated, budget: updated.budget + fee, weeksInDebt: 0 };
+                        forcedSaleNews.push({ id: uid("n"), text: `⚠️ The board forced the sale of ${target.name} to balance the books at ${c.name} — ${formatMoney(fee)} raised.`, clubIds: [c.id], week, season });
+                    }
+                }
+                return updated;
+            });
+            return { ...w, clubs: newClubs, players: newPlayers };
+        });
+        if (forcedSaleNews.length)
+            setNews((n) => [...forcedSaleNews, ...n].slice(0, 150));
         const newWeek = week + 1;
         const rolled = rolloverSeasonIfNeeded(newWeek);
         if (!rolled)
@@ -4446,7 +4592,8 @@ function App() {
                             "Managing ",
                             CLUBS_SETUP_LOOKUP[cid]?.name),
                         React.createElement("input", { value: managerNames[i] || "", onChange: (e) => setManagerNames((n) => { const next = [...n]; next[i] = e.target.value; return next; }), placeholder: "Your name", className: "w-full border rounded px-3 py-2 text-sm", style: selStyle })))))),
-                React.createElement("button", { onClick: startGame, disabled: setupSelection.length === 0, className: "w-full py-3.5 rounded-lg font-black tracking-widest text-sm pse-display disabled:opacity-40 disabled:cursor-not-allowed", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "KICK OFF"),
+                React.createElement("button", { onClick: () => startGame(false), disabled: setupSelection.length === 0, className: "w-full py-3.5 rounded-lg font-black tracking-widest text-sm pse-display disabled:opacity-40 disabled:cursor-not-allowed", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "KICK OFF"),
+                React.createElement("button", { onClick: () => startGame(true), className: "w-full mt-2 py-2.5 rounded-lg text-xs font-bold border", style: { borderColor: C.border, color: C.text } }, "\uD83D\uDC40 Or start unemployed \u2014 browse jobs and pick one whenever you like"),
                 saveMsg && React.createElement("div", { className: "text-center text-[10px] mt-2", style: { color: C.green } }, saveMsg))));
     }
     /* =======================================================================
@@ -4518,27 +4665,13 @@ function App() {
                             m.penaltyShootout.homeWon ? home.name : away.name,
                             " win the shootout"))),
                     !full && !m.atHalftime && React.createElement("div", { className: "text-center text-[10px] mt-2", style: { color: C.sub } }, m.running ? "Live — running" : m.minute === 0 ? "Kick off when ready" : "Paused")),
-                React.createElement("button", { onClick: () => setShowLiveTable((v) => !v), className: "w-full py-2 rounded-lg text-xs font-bold border mb-3", style: { borderColor: C.border, color: C.text, backgroundColor: C.card } },
-                    showLiveTable ? "Hide" : "View",
-                    " League Table",
-                    !m.isCup && !m.isPlayoff ? " (live)" : ""),
-                showLiveTable && (() => {
-                    const divId = clubsById[m.homeId]?.divisionId;
-                    const divIdx = DIVISIONS_SEED.findIndex((d) => d.id === divId);
-                    const rows = liveTableWithMatch(divId, m, hg, ag);
-                    return (React.createElement("div", { className: "mb-3" },
-                        React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.green } },
-                            DIVISIONS_SEED[divIdx]?.name?.toUpperCase(),
-                            !m.isCup && !m.isPlayoff ? " — WITH THIS RESULT APPLIED" : ""),
-                        React.createElement(LeagueTableView, { rows: rows, divIndex: divIdx })));
-                })(),
                 !full && (React.createElement("div", { className: "flex items-center gap-1.5 mb-3" },
                     React.createElement("span", { className: "text-[9px] font-bold mr-1", style: { color: C.sub } }, "SPEED"),
                     [1, 2, 3].map((s) => (React.createElement("button", { key: s, onClick: () => setMatchSpeed(s), className: "px-3 py-1.5 rounded-lg text-xs font-bold border", style: { borderColor: matchSpeed === s ? C.green : C.border, backgroundColor: matchSpeed === s ? C.green : C.card, color: matchSpeed === s ? "#FFFFFF" : C.text } },
                         "\u00D7",
                         s))),
                     !m.atHalftime && (React.createElement("button", { onClick: toggleMatchRunning, className: "ml-auto px-4 py-1.5 rounded-lg text-xs font-bold border", style: { borderColor: m.running ? C.red : C.amber, backgroundColor: m.running ? C.red : C.amber, color: "#FFFFFF" } }, m.minute === 0 && !m.running ? "▶ KICK OFF" : m.running ? "⏸ PAUSE" : "▶ RESUME")))),
-                React.createElement("div", { className: "flex gap-1.5 mb-3" }, [["action", "🎯", "Action"], ["pitch", "🟩", "Pitch"], ["stats", "📊", "Stats"], ["ratings", "⭐", "Ratings"]].map(([key, icon, label]) => (React.createElement("button", { key: key, onClick: () => setMatchViewTab(key), className: "flex-1 py-2 rounded-lg text-[10px] font-bold border flex flex-col items-center gap-0.5", style: { borderColor: matchViewTab === key ? C.green : C.border, backgroundColor: matchViewTab === key ? C.cardAlt : C.card, color: matchViewTab === key ? C.greenDark : C.sub } },
+                React.createElement("div", { className: "flex gap-1.5 mb-3" }, [["action", "📣", "Action"], ["pitch", "🟩", "Pitch"], ["stats", "📊", "Stats"], ["ratings", "⭐", "Ratings"]].map(([key, icon, label]) => (React.createElement("button", { key: key, onClick: () => setMatchViewTab(key), className: "flex-1 py-2 rounded-lg text-[10px] font-bold border flex flex-col items-center gap-0.5", style: { borderColor: matchViewTab === key ? C.green : C.border, backgroundColor: matchViewTab === key ? C.cardAlt : C.card, color: matchViewTab === key ? C.greenDark : C.sub } },
                     React.createElement("span", { style: { fontSize: 14 } }, icon),
                     label)))),
                 matchViewTab === "pitch" && (React.createElement("div", { className: "mb-4" },
@@ -4662,6 +4795,20 @@ function App() {
                         statsPanel && (React.createElement("div", { className: "mb-2" },
                             React.createElement(PlayerStatsTable, { xi: statsPanel === "home" ? m.homeXI : m.awayXI, appeared: statsPanel === "home" ? m.homeAppeared : m.awayAppeared, teamId: statsPanel === "home" ? m.homeId : m.awayId, events: m.events, playerStats: m.playerStats, stamina: m.stamina }))),
                         subPanel && React.createElement(SubPanel, { side: subPanel, xi: subPanel === "home" ? m.homeXI : m.awayXI, bench: subPanel === "home" ? m.homeBench : m.awayBench, onSub: (outId, inPlayer) => makeSub(subPanel, outId, inPlayer) })))),
+                React.createElement("button", { onClick: () => setShowLiveTable((v) => !v), className: "w-full py-2 rounded-lg text-xs font-bold border mb-3", style: { borderColor: C.border, color: C.text, backgroundColor: C.card } },
+                    showLiveTable ? "Hide" : "View",
+                    " League Table",
+                    !m.isCup && !m.isPlayoff ? " (live)" : ""),
+                showLiveTable && (() => {
+                    const divId = clubsById[m.homeId]?.divisionId;
+                    const divIdx = DIVISIONS_SEED.findIndex((d) => d.id === divId);
+                    const rows = liveTableWithMatch(divId, m, hg, ag);
+                    return (React.createElement("div", { className: "mb-3" },
+                        React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.green } },
+                            DIVISIONS_SEED[divIdx]?.name?.toUpperCase(),
+                            !m.isCup && !m.isPlayoff ? " — WITH THIS RESULT APPLIED" : ""),
+                        React.createElement(LeagueTableView, { rows: rows, divIndex: divIdx })));
+                })(),
                 (() => {
                     const resultItems = matchHistory.slice(0, 8).map((h) => {
                         const homeName = clubsById[h.homeId]?.name || "?";
@@ -4776,7 +4923,9 @@ function App() {
                             viewingPlayer.clubId ? `Contracted to ${clubsById[viewingPlayer.clubId]?.name} — ${viewingPlayer.contractWeeks} weeks remaining` : "Free agent",
                             " \u00B7 Morale ",
                             viewingPlayer.morale,
-                            "/100 \u00B7 \uD83D\uDFE8 ",
+                            "/100",
+                            viewingPlayer.clubId ? ` · Fatigue ${viewingPlayer.fatigue || 0}/100${(viewingPlayer.fatigue || 0) > 50 ? " 🥵" : ""}` : "",
+                            " \u00B7 \uD83D\uDFE8 ",
                             viewingPlayer.yellowCardsSeason || 0,
                             " this season",
                             viewingPlayer.transferListed ? " · 📋 Transfer listed" : ""),
@@ -4934,6 +5083,28 @@ function App() {
                     React.createElement(Ico, { e: "\uD83D\uDCB0", size: 13, color: C.amber }),
                     React.createElement("span", { className: "font-bold" }, formatMoney(activeClub?.budget || 0))))),
         React.createElement("div", { className: "max-w-4xl mx-auto px-3 sm:px-6 pb-24 pt-2" },
+            tab === "play" && !activeClub && world && (React.createElement("div", null,
+                React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, "CURRENTLY UNEMPLOYED"),
+                React.createElement("div", { className: "rounded-lg p-4 mb-4 border text-center", style: { backgroundColor: C.card, borderColor: C.border } },
+                    React.createElement("div", { style: { fontSize: 28 } }, "\uD83D\uDC40"),
+                    React.createElement("div", { className: "text-sm font-bold mt-1" }, "Watching from the stands"),
+                    React.createElement("div", { className: "text-[11px] mt-1", style: { color: C.sub } },
+                        "The league keeps moving whether you're in the dugout or not \u2014 Season ",
+                        season,
+                        ", Week ",
+                        week,
+                        ". Take a job whenever one catches your eye.")),
+                React.createElement("button", { onClick: advanceWeek, disabled: !allControlledDoneThisWeek, className: "w-full mb-4 py-3 rounded-lg font-black tracking-widest text-sm pse-display disabled:opacity-40", style: { backgroundColor: C.green, color: "#FFFFFF" } },
+                    "ADVANCE TO WEEK ",
+                    week + 1),
+                React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "AVAILABLE JOBS"),
+                DIVISIONS_SEED.map((div) => (React.createElement("div", { key: div.id, className: "mb-3" },
+                    React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.amber } }, div.name.toUpperCase()),
+                    React.createElement("div", { className: "grid grid-cols-2 gap-1.5" }, world.clubs.filter((c) => c.divisionId === div.id && !controlled.includes(c.id)).map((c) => (React.createElement("button", { key: c.id, onClick: () => acceptSpectatorJob(c.id), className: "text-left rounded-lg p-2.5 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
+                        React.createElement("div", { className: "font-bold text-xs" }, c.name),
+                        React.createElement("div", { className: "text-[9px]", style: { color: C.sub } },
+                            c.pts,
+                            " pts this season")))))))))),
             tab === "play" && activeClub && (React.createElement("div", null,
                 !activeClub.formation ? (React.createElement("div", { className: "rounded-lg p-5 mb-3 border text-center", style: { backgroundColor: C.card, borderColor: C.amber } },
                     React.createElement("div", { style: { fontSize: 26 } }, "\uD83D\uDCCB"),
@@ -5059,7 +5230,10 @@ function App() {
                             "Recent form: ",
                             formLetters.length ? formLetters.map((f, i) => (React.createElement("span", { key: i, className: "inline-block w-4 h-4 rounded-full text-center text-[9px] font-bold mr-1", style: { backgroundColor: f === "W" ? C.green : f === "L" ? C.red : C.amber, color: "#FFFFFF" } }, f))) : React.createElement("span", { style: { color: C.sub } }, "No matches yet"))));
                 })())),
-            tab === "squad" && (React.createElement("div", null,
+            tab === "squad" && !activeClub && (React.createElement("div", { className: "rounded-lg p-5 border text-center", style: { backgroundColor: C.card, borderColor: C.border } },
+                React.createElement("div", { className: "text-sm font-bold mb-1" }, "No squad \u2014 you're between jobs"),
+                React.createElement("button", { onClick: () => setTab("play"), className: "mt-2 text-xs font-bold px-3 py-1.5 rounded-lg", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "Browse available jobs"))),
+            tab === "squad" && activeClub && (React.createElement("div", null,
                 React.createElement("div", { className: "flex items-center justify-between mb-2 flex-wrap gap-2" },
                     React.createElement("div", { className: "text-[11px] tracking-widest font-bold", style: { color: C.green } },
                         "SQUAD (",
@@ -5297,7 +5471,8 @@ function App() {
                 { key: "results", label: "Match Results", desc: "Every result, filterable by club, competition, and season", icon: "🗂️" },
                 { key: "cup", label: "Cup Competitions", desc: "Every division has its own cup, plus the Empire Cup", icon: "⚔️" },
                 { key: "clubs", label: "All Clubs", desc: "Browse every club — squads, form, results", icon: "🏟️" },
-                { key: "history", label: "History & Stats", desc: "Past seasons, all-time records, and achievements", icon: "🕓" },
+                { key: "history", label: "History & Stats", desc: "Past seasons and end-of-season records", icon: "🕓" },
+                { key: "playerstats", label: "Player Records", desc: "Top scorers, assists, and MOTM — filter by season, division, or club", icon: "📈" },
                 { key: "news", label: "News", desc: "Everything happening across the league, filterable by club", icon: "📰" },
                 { key: "scouting", label: "Scouting", desc: hiredScout && hiredScout.clubId === activeClubId ? `${hiredScout.name} — ${SCOUT_SPECIALTY_LABELS[hiredScout.specialty]}` : season < 2 ? "🔒 Unlocks in Season 2" : "Hire a scout to surface transfer targets", icon: "🔎" },
                 { key: "leaderboard", label: "Manager Leaderboard", desc: "Reputation, record, and trophies head-to-head", icon: "🏅" },
@@ -5396,9 +5571,12 @@ function App() {
                     POSITIONS.map((p) => React.createElement(Pill, { key: p, active: marketFilter.pos === p, onClick: () => setMarketFilter((f) => ({ ...f, pos: p })) }, p))),
                 React.createElement("input", { value: marketFilter.search, onChange: (e) => setMarketFilter((f) => ({ ...f, search: e.target.value })), placeholder: "Search by name...", className: "w-full border rounded px-3 py-1.5 text-xs mb-4", style: selStyle }),
                 React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "FREE AGENTS"),
-                season < 2 && React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "\uD83D\uDD12 The very best free agents (85+ overall) don't surface until Season 2 \u2014 no snapping up a superstar on day one."),
+                React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } },
+                    "\uD83D\uDD04 A fresh selection surfaces each week \u2014 capped to what's realistic for ",
+                    DIVISIONS_SEED[DIVISIONS_SEED.findIndex((d) => d.id === activeClub?.divisionId)]?.name || "your division",
+                    ". Check back regularly; a good one won't wait around."),
                 React.createElement("div", { className: "space-y-1.5 mb-5" },
-                    freeAgents.filter((p) => (season >= 2 || p.overall < 85) && (marketFilter.pos === "all" || p.position === marketFilter.pos) && (!marketFilter.search || p.name.toLowerCase().includes(marketFilter.search.toLowerCase()))).map((p) => (React.createElement("button", { key: p.id, onClick: () => setMarketPlayerId(p.id), className: "w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
+                    visibleFreeAgents.filter((p) => (marketFilter.pos === "all" || p.position === marketFilter.pos) && (!marketFilter.search || p.name.toLowerCase().includes(marketFilter.search.toLowerCase()))).map((p) => (React.createElement("button", { key: p.id, onClick: () => setMarketPlayerId(p.id), className: "w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
                         React.createElement("span", null,
                             React.createElement("span", { className: "font-bold" }, p.name),
                             " ",
@@ -5411,7 +5589,7 @@ function App() {
                                 "/wk"),
                             React.createElement(BreakoutBadge, { player: p })),
                         React.createElement("span", { style: { color: C.sub } }, "\u203A")))),
-                    freeAgents.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "No free agents right now.")),
+                    visibleFreeAgents.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "No free agents right now \u2014 check back next week.")),
                 React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "SIGN FROM RIVAL CLUBS"),
                 React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "Rival clubs don't have to say yes \u2014 key players and low bids are more likely to be turned down."),
                 React.createElement("div", { className: "space-y-1.5" }, world.players.filter((p) => p.clubId && p.clubId !== activeClubId && (marketFilter.pos === "all" || p.position === marketFilter.pos) && (!marketFilter.search || p.name.toLowerCase().includes(marketFilter.search.toLowerCase()))).sort((a, b) => b.overall - a.overall).slice(0, 60).map((p) => {
@@ -5546,55 +5724,7 @@ function App() {
                                 React.createElement("span", { style: { color: C.sub } }, "Player of the Season: "),
                                 React.createElement("span", { className: "font-bold" }, rec.playerOfSeason ? `${rec.playerOfSeason.name} (${rec.playerOfSeason.motmCount} MOTM award${rec.playerOfSeason.motmCount === 1 ? "" : "s"})` : "Not enough matches watched this season"))));
                     })())) : (React.createElement("div", { className: "text-xs italic mb-4", style: { color: C.sub } }, "No seasons completed yet \u2014 finish Season 1 (22 weeks per division) to see it here.")),
-                React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "ALL-TIME TOP SCORERS"),
-                React.createElement("div", { className: "space-y-1 mb-4" }, [...world.players].sort((a, b) => b.goals - a.goals).slice(0, 15).map((p, i) => (React.createElement("button", { key: p.id, onClick: () => setViewingPlayerId(p.id), className: "w-full flex items-center justify-between text-xs rounded-lg px-3 py-1.5 border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
-                    React.createElement("span", null,
-                        "#",
-                        i + 1,
-                        " ",
-                        p.name,
-                        " ",
-                        p.clubId && React.createElement("span", { style: { color: C.sub } },
-                            "(",
-                            clubsById[p.clubId]?.name,
-                            ")")),
-                    React.createElement("span", { className: "font-bold" },
-                        p.goals,
-                        " goals"))))),
-                React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "ALL-TIME TOP ASSISTS"),
-                React.createElement("div", { className: "space-y-1 mb-4" },
-                    [...world.players].sort((a, b) => (b.assists || 0) - (a.assists || 0)).slice(0, 15).map((p, i) => (React.createElement("button", { key: p.id, onClick: () => setViewingPlayerId(p.id), className: "w-full flex items-center justify-between text-xs rounded-lg px-3 py-1.5 border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
-                        React.createElement("span", null,
-                            "#",
-                            i + 1,
-                            " ",
-                            p.name,
-                            " ",
-                            p.clubId && React.createElement("span", { style: { color: C.sub } },
-                                "(",
-                                clubsById[p.clubId]?.name,
-                                ")")),
-                        React.createElement("span", { className: "font-bold" },
-                            p.assists || 0,
-                            " assists")))),
-                    world.players.every((p) => !p.assists) && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "None recorded yet.")),
-                React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "ALL-TIME MAN OF THE MATCH LEADERS"),
-                React.createElement("div", { className: "space-y-1 mb-4" },
-                    [...world.players].sort((a, b) => b.motmCareerCount - a.motmCareerCount).slice(0, 15).filter((p) => p.motmCareerCount > 0).map((p, i) => (React.createElement("button", { key: p.id, onClick: () => setViewingPlayerId(p.id), className: "w-full flex items-center justify-between text-xs rounded-lg px-3 py-1.5 border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
-                        React.createElement("span", null,
-                            "#",
-                            i + 1,
-                            " ",
-                            p.name,
-                            " ",
-                            p.clubId && React.createElement("span", { style: { color: C.sub } },
-                                "(",
-                                clubsById[p.clubId]?.name,
-                                ")")),
-                        React.createElement("span", { className: "font-bold" },
-                            p.motmCareerCount,
-                            " MOTM")))),
-                    world.players.every((p) => p.motmCareerCount === 0) && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "None yet \u2014 play some matches yourself to start awarding Man of the Match.")),
+                React.createElement("button", { onClick: () => setTab("playerstats"), className: "w-full py-2.5 rounded-lg text-xs font-bold border mb-4", style: { borderColor: C.border, color: C.text, backgroundColor: C.card } }, "\uD83D\uDCC8 Player Records \u2014 top scorers, assists, MOTM (filterable)"),
                 React.createElement("div", { className: "flex gap-2 mb-4" },
                     React.createElement("button", { onClick: () => { setResultsFilter({ season: "all", divisionId: "all", clubId: "all" }); setTab("results"); }, className: "flex-1 py-2 rounded-lg text-xs font-bold border", style: { borderColor: C.border, color: C.text } }, "Full Match History"),
                     React.createElement("button", { onClick: () => setTab("achievements"), className: "flex-1 py-2 rounded-lg text-xs font-bold border", style: { borderColor: C.border, color: C.text } },
@@ -5613,13 +5743,85 @@ function App() {
                         " \u00B7 Empire Cup: ",
                         React.createElement("span", { className: "font-bold" }, h.cupChampion ? clubsById[h.cupChampion]?.name : "Unresolved")))),
                     seasonHistory.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "None yet.")))),
+            tab === "playerstats" && world && (() => {
+                const completedSeasons = seasonHistory.map((h) => h.season);
+                const { season: seasonSel, divisionId: divSel, clubId: clubSel, stat } = statsFilter;
+                const divisionOf = (cid) => clubsById[cid]?.divisionId;
+                let rows = [];
+                if (seasonSel === "all") {
+                    rows = world.players
+                        .filter((p) => (clubSel === "all" || p.clubId === clubSel))
+                        .filter((p) => (divSel === "all" || (p.clubId && divisionOf(p.clubId) === divSel)))
+                        .map((p) => ({ id: p.id, name: p.name, clubId: p.clubId, value: stat === "goals" ? p.goals : stat === "assists" ? (p.assists || 0) : p.motmCareerCount }));
+                }
+                else if (stat === "motm") {
+                    rows = [];
+                }
+                else {
+                    world.players.forEach((p) => {
+                        (p.seasonHistoryLog || []).forEach((log) => {
+                            if (log.season !== seasonSel)
+                                return;
+                            if (clubSel !== "all" && log.clubId !== clubSel)
+                                return;
+                            if (divSel !== "all" && divisionOf(log.clubId) !== divSel)
+                                return;
+                            rows.push({ id: p.id, name: p.name, clubId: log.clubId, value: stat === "goals" ? (log.goals || 0) : (log.assists || 0) });
+                        });
+                    });
+                }
+                rows = rows.filter((r) => r.value > 0).sort((a, b) => b.value - a.value).slice(0, 25);
+                const statLabel = stat === "goals" ? "goals" : stat === "assists" ? "assists" : "MOTM";
+                return (React.createElement("div", null,
+                    React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-3", style: { color: C.green } }, "PLAYER RECORDS"),
+                    React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-2" },
+                        React.createElement(Pill, { active: stat === "goals", onClick: () => setStatsFilter((f) => ({ ...f, stat: "goals" })) }, "Goals"),
+                        React.createElement(Pill, { active: stat === "assists", onClick: () => setStatsFilter((f) => ({ ...f, stat: "assists" })) }, "Assists"),
+                        React.createElement(Pill, { active: stat === "motm", onClick: () => setStatsFilter((f) => ({ ...f, stat: "motm" })) }, "Man of the Match")),
+                    React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-2" },
+                        React.createElement(Pill, { active: seasonSel === "all", onClick: () => setStatsFilter((f) => ({ ...f, season: "all" })) }, "All Seasons"),
+                        completedSeasons.map((s) => React.createElement(Pill, { key: s, active: seasonSel === s, onClick: () => setStatsFilter((f) => ({ ...f, season: s })) },
+                            "Season ",
+                            s))),
+                    React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-2" },
+                        React.createElement(Pill, { active: divSel === "all", onClick: () => setStatsFilter((f) => ({ ...f, divisionId: "all" })) }, "All Divisions"),
+                        DIVISIONS_SEED.map((d) => React.createElement(Pill, { key: d.id, active: divSel === d.id, onClick: () => setStatsFilter((f) => ({ ...f, divisionId: d.id })) }, d.name))),
+                    React.createElement("select", { value: clubSel, onChange: (e) => setStatsFilter((f) => ({ ...f, clubId: e.target.value })), className: "border rounded px-2 py-1.5 text-xs mb-3", style: selStyle },
+                        React.createElement("option", { value: "all" }, "All Clubs"),
+                        world.clubs.map((c) => React.createElement("option", { key: c.id, value: c.id }, c.name))),
+                    stat === "motm" && seasonSel !== "all" ? (React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Man of the Match leaders aren't tracked season-by-season historically \u2014 switch to \"All Seasons\" to see career MOTM leaders.")) : (React.createElement("div", { className: "space-y-1" },
+                        rows.map((r, i) => (React.createElement("button", { key: `${r.id}-${i}`, onClick: () => setViewingPlayerId(r.id), className: "w-full flex items-center justify-between text-xs rounded-lg px-3 py-1.5 border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
+                            React.createElement("span", { className: "flex items-center gap-1.5" },
+                                "#",
+                                i + 1,
+                                " ",
+                                React.createElement(ClubCrest, { club: clubsById[r.clubId], size: 14 }),
+                                " ",
+                                r.name,
+                                " ",
+                                r.clubId && React.createElement("span", { style: { color: C.sub } },
+                                    "(",
+                                    clubsById[r.clubId]?.name,
+                                    ")")),
+                            React.createElement("span", { className: "font-bold" },
+                                r.value,
+                                " ",
+                                statLabel)))),
+                        rows.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nothing recorded for this filter combination yet.")))));
+            })(),
             tab === "finance" && activeClub && world && (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } },
                     "FINANCES \u2014 ",
                     activeClub.name),
                 React.createElement("div", { className: "rounded-lg p-4 border mb-4", style: { backgroundColor: C.card, borderColor: C.border } },
                     React.createElement("div", { className: "text-[9px] tracking-wide mb-1", style: { color: C.sub } }, "CURRENT BUDGET"),
-                    React.createElement("div", { className: "text-3xl font-black", style: { color: activeClub.budget < 0 ? C.red : C.text } }, formatMoney(activeClub.budget))),
+                    React.createElement("div", { className: "text-3xl font-black", style: { color: activeClub.budget < 0 ? C.red : C.text } }, formatMoney(activeClub.budget)),
+                    activeClub.budget < 0 && (React.createElement("div", { className: "text-[10px] mt-2", style: { color: C.red } },
+                        "\u26A0\uFE0F You're in the red \u2014 board confidence is draining fast on top of the usual pressures. Stay here ",
+                        4 - (activeClub.weeksInDebt || 0),
+                        " more week",
+                        4 - (activeClub.weeksInDebt || 0) === 1 ? "" : "s",
+                        " and the board will force a sale to balance the books, whether you like it or not."))),
                 React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "WEEKLY OUTGOINGS"),
                 React.createElement("div", { className: "rounded-lg p-3 border mb-4", style: { backgroundColor: C.card, borderColor: C.border } },
                     React.createElement("div", { className: "flex justify-between text-xs py-1" },
@@ -5922,7 +6124,7 @@ function App() {
                     React.createElement("div", { className: "text-xs", style: { color: C.sub } }, "The Play tab (\u26BD) is home base: a hero card shows your next fixture with a VS build-up, your latest club news, formation/tactics, your Starting XI on the pitch, and a scouting report on your next opponent. Hit PLAY MATCH to head into the live matchday screen. It's a real-time clock \u2014 KICK OFF starts it running, playing out 90 minutes over about two real minutes, with a possession bar, a moving ball tracker, and a full team stats comparison (shots, shots on target, saves, cards) updating live. Pause any time to make substitutions or change formation/tempo/pressing \u2014 subs and tactics are locked while the clock is running, so pause first. A goal popup announces every goal as it happens, and Man of the Match is shown the moment the final whistle goes.")),
                 React.createElement("div", null,
                     React.createElement("div", { className: "text-xs font-bold mb-1" }, "Tactics"),
-                    React.createElement("div", { className: "text-xs", style: { color: C.sub } }, "Beyond formation (which decides your XI's shape), Tempo (Defensive/Balanced/Attacking) and Pressing (Low/Medium/High) are real levers: attacking tempo trades defensive solidity for goal threat; high pressing tires the opposition faster \u2014 and your own players too \u2014 and draws more bookings. All three can be changed before kick-off on the Play tab, or live mid-match while paused.")),
+                    React.createElement("div", { className: "text-xs", style: { color: C.sub } }, "Beyond formation (which decides your XI's shape), Tempo (Defensive/Balanced/Attacking) and Pressing (Low/Medium/High) are real levers: attacking tempo trades defensive solidity for goal threat; high pressing tires the opposition faster \u2014 and your own players too \u2014 and draws more bookings. All three can be changed before kick-off on the Play tab, or live mid-match while paused. Separately from in-match stamina (which resets every game), each player also carries match fatigue across the season: start them game after game with no rest and it climbs, quietly costing them effective quality until it saturates \u2014 a genuine reason to rotate your squad rather than always picking your strongest XI. Rest a tired player for a week or two and it drains back down.")),
                 React.createElement("div", null,
                     React.createElement("div", { className: "text-xs font-bold mb-1" }, "Your Squad"),
                     React.createElement("div", { className: "text-xs", style: { color: C.sub } }, "Tap any player for their full profile \u2014 six core stats, potential (their development ceiling, shown when there's room left to grow), career average rating, MOTM count, shots/saves, wage, contract, and morale. \"\u2022 Main Squad\" marks whoever's in your current Starting XI. Morale rises with wins and a weekly Pep Talk (once per player per week), and drifts down if a player's left out too long \u2014 rotate your squad, don't just pick the same 11 forever. If morale stays critically low for a few weeks running, a player will formally request a release (flagged on the Squad tab under Squad Concerns) \u2014 grant it and there's no severance to pay, since they wanted out anyway. Physical affects how fast a player tires mid-match. Injuries and cards (yellow/red, with suspensions for reds and for five yellows in a season) are both rare but real.")),
@@ -6030,7 +6232,8 @@ function App() {
                 React.createElement("div", { className: "text-xs mb-4", style: { color: C.sub } },
                     "The board at ",
                     clubsById[sackedClubId]?.name,
-                    " ran out of patience. Your time there is over \u2014 but the game isn't. Pick a new club to take charge of."),
+                    " ran out of patience. Your time there is over \u2014 but the game isn't. Pick a new club to take charge of, or step back and watch the league carry on until something takes your eye."),
+                React.createElement("button", { onClick: spectateForNow, className: "w-full mb-4 py-2.5 rounded-lg font-bold text-xs border", style: { borderColor: C.border, color: C.text } }, "\uD83D\uDC40 Spectate for now \u2014 I'll pick a club later"),
                 DIVISIONS_SEED.map((div) => (React.createElement("div", { key: div.id, className: "mb-3" },
                     React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.amber } }, div.name.toUpperCase()),
                     React.createElement("div", { className: "grid grid-cols-2 gap-1.5" }, world.clubs.filter((c) => c.divisionId === div.id && c.id !== sackedClubId && !controlled.includes(c.id)).map((c) => (React.createElement("button", { key: c.id, onClick: () => takeNewJob(c.id), className: "text-left rounded-lg p-2.5 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
