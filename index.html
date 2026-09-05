@@ -1532,6 +1532,23 @@ function simulateSegment(homeClub, awayClub, homeXI, awayXI, fromMin, toMin) {
     events.sort((a, b) => a.minute - b.minute);
     return { events, injured, statDelta, staminaDelta, cardEvents, homeShotsThisSeg, awayShotsThisSeg, pressureBias };
 }
+function clearInjuredFromLineups(clubs, injuredIds) {
+    if (!injuredIds || !injuredIds.size)
+        return clubs;
+    return clubs.map((c) => {
+        if (!c.lineup)
+            return c;
+        let changed = false;
+        const newLineup = { ...c.lineup };
+        Object.keys(newLineup).forEach((slotId) => {
+            if (injuredIds.has(newLineup[slotId])) {
+                delete newLineup[slotId];
+                changed = true;
+            }
+        });
+        return changed ? { ...c, lineup: newLineup } : c;
+    });
+}
 function applyCardBatch(players, cards) {
     if (!cards || !cards.length)
         return players;
@@ -1884,7 +1901,7 @@ function ClubDetail({ club, squad, history, clubsById, onBack, onSign, onView, w
             React.createElement("div", { className: "flex items-center gap-2 text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } },
                 React.createElement(Ico, { e: "\uD83C\uDFC6", size: 13 }),
                 " TROPHY CABINET"),
-            (club.leagueTitles || []).length === 0 && (club.cupTitlesWon || 0) === 0 ? (React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nothing yet.")) : (React.createElement("div", { className: "space-y-1" },
+            (club.leagueTitles || []).length === 0 && (club.cupTitlesHistory || []).length === 0 ? (React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nothing yet.")) : (React.createElement("div", { className: "space-y-1" },
                 (club.leagueTitles || []).map((t, i) => (React.createElement("div", { key: `lt-${i}`, className: "text-xs rounded-lg px-3 py-1.5 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
                     "\uD83C\uDFC6 ",
                     t.divisionName,
@@ -2527,20 +2544,23 @@ function App() {
         const winners = ties.map((t) => t.winnerId);
         if (byeId)
             winners.push(byeId);
-        // A division cup reaching its final four snapshots those 4 as Empire Cup qualifiers, but the
-        // division cup itself keeps going toward its own final independently of Empire Cup timing.
-        if (!isEmpire && winners.length === 4 && !cupObj.top4) {
+        // A division cup reaching its final stretch snapshots those qualifiers for the Empire Cup,
+        // but the division cup itself keeps going toward its own final independently of Empire Cup
+        // timing. Using <= 4 (not === 4) because these bracket sizes (12 or 10 clubs, with byes for
+        // odd rounds) never actually produce an exact "4 remaining" round — they go straight from 6
+        // to 3 — so an exact-equality check here would mean the Empire Cup could never start at all.
+        if (!isEmpire && winners.length <= 4 && winners.length >= 2 && !cupObj.top4) {
             setDivisionCups((cups) => {
                 const next = { ...cups, [cupKey]: { ...cups[cupKey], top4: winners } };
                 const allReady = CUP_DEFS.every((def) => next[def.key]?.top4);
                 if (allReady) {
                     const entrants = CUP_DEFS.flatMap((def) => next[def.key].top4);
                     setEmpireCup({ rounds: [generateCupRound(entrants, "empire")], champion: null, started: true });
-                    setNews((n) => [{ id: uid("n"), text: `⚔️ Empire Cup draw made — all five division cups have reached their final four, and 20 clubs go into the hat.`, clubIds: [], week, season }, ...n].slice(0, 150));
+                    setNews((n) => [{ id: uid("n"), text: `⚔️ Empire Cup draw made — all five division cups have reached their final stretch, and ${entrants.length} clubs go into the hat.`, clubIds: [], week, season }, ...n].slice(0, 150));
                 }
                 return next;
             });
-            setNews((n) => [{ id: uid("n"), text: `${cupNameFor(cupKey)}: the final four are set — ${winners.map((id) => clubsById[id]?.name).filter(Boolean).join(", ")}.`, clubIds: winners, week, season }, ...n].slice(0, 150));
+            setNews((n) => [{ id: uid("n"), text: `${cupNameFor(cupKey)}: the final ${winners.length} are set — ${winners.map((id) => clubsById[id]?.name).filter(Boolean).join(", ")}.`, clubIds: winners, week, season }, ...n].slice(0, 150));
         }
         if (winners.length <= 1) {
             if (winners.length === 1) {
@@ -2828,7 +2848,7 @@ function App() {
                 }
                 return np;
             });
-            const clubs = motmPlayer && motmPlayer.clubId ? w.clubs.map((c) => (c.id === motmPlayer.clubId ? { ...c, careerMotm: (c.careerMotm || 0) + 1 } : c)) : w.clubs;
+            const clubs = clearInjuredFromLineups(motmPlayer && motmPlayer.clubId ? w.clubs.map((c) => (c.id === motmPlayer.clubId ? { ...c, careerMotm: (c.careerMotm || 0) + 1 } : c)) : w.clubs, new Set(Object.keys(injuryMap)));
             return { ...w, players, clubs };
         });
         const home = clubsById[m.homeId], away = clubsById[m.awayId];
@@ -2912,6 +2932,7 @@ function App() {
                     return np;
                 });
                 players = applyCardBatch(players, sim.cards);
+                clubs = clearInjuredFromLineups(clubs, new Set(Object.keys(injuryMap)));
                 if (motmPlayerObj)
                     clubs = clubs.map((c) => (c.id === motmPlayerObj.clubId ? { ...c, careerMotm: (c.careerMotm || 0) + 1 } : c));
                 if (motmPlayerObj)
@@ -3074,13 +3095,13 @@ function App() {
         const cupAwayResult = sim.awayGoals > sim.homeGoals ? "win" : sim.homeGoals === sim.awayGoals ? "draw" : "loss";
         const cupHomeIncome = matchIncome(home, true, cupHomeResult);
         const cupAwayIncome = matchIncome(away, false, cupAwayResult);
-        const newClubs = clubs.map((c) => {
+        const newClubs = clearInjuredFromLineups(clubs.map((c) => {
             if (c.id === t.homeId)
                 return { ...applyPopularityOnly(c, sim.homeGoals, sim.awayGoals), budget: c.budget + cupHomeIncome.amount, lastMatchIncome: cupHomeIncome.amount, lastAttendance: cupHomeIncome.attendance, lastTicketPrice: cupHomeIncome.price, careerMotm: motmPlayerObj?.clubId === c.id ? (c.careerMotm || 0) + 1 : (c.careerMotm || 0) };
             if (c.id === t.awayId)
                 return { ...applyPopularityOnly(c, sim.awayGoals, sim.homeGoals), budget: c.budget + cupAwayIncome.amount, lastMatchIncome: cupAwayIncome.amount, careerMotm: motmPlayerObj?.clubId === c.id ? (c.careerMotm || 0) + 1 : (c.careerMotm || 0) };
             return c;
-        });
+        }), new Set(Object.keys(injuryMap)));
         const penaltyText = penaltyScoreAi ? ` (${clubsById[winnerId]?.name} win ${penaltyScoreAi.home}-${penaltyScoreAi.away} on penalties)` : "";
         const newsItem = motmPlayerObj ? { id: uid("n"), text: `⭐ ${motmPlayerObj.name} named Man of the Match as ${home.name} face ${away.name} in the ${cupNameFor(cupKey)}${penaltyText}.`, clubIds: [t.homeId, t.awayId], week, season } : null;
         const historyItem = { id: uid("mh"), season, week, divisionId: "cup", isCup: true, cupKey, homeId: t.homeId, awayId: t.awayId, homeGoals: sim.homeGoals, awayGoals: sim.awayGoals, penaltyScore: penaltyScoreAi };
@@ -3261,6 +3282,8 @@ function App() {
                     else if (key === "top-half")
                         met = pos < total / 2;
                     else if (key === "mid-table")
+                        met = pos < total - 2;
+                    else if (key === "settle-in")
                         met = pos < total - 2;
                     boardConfidence = clamp(boardConfidence + (met ? 12 : -18), 0, 100);
                     boardNews.push({ id: uid("n"), text: `Board review at ${c.name}: ${met ? "objective met" : "objective missed"} (${OBJECTIVE_LABELS[key] || key}). Confidence now ${boardConfidence}/100.`, clubIds: [c.id], week: newWeek, season });
@@ -3548,7 +3571,9 @@ function App() {
         }
         // training — small chance of a stat bump toward each club's chosen focus, better odds for younger players
         setWorld((w) => ({ ...w, players: applyTraining(w.players, clubsById) }));
-        // board confidence — a slow drain if you're sat in the relegation zone deep into the season
+        // board confidence — nudges a little every week based on that week's result (so it feels
+        // alive, not just something that jumps at season review), plus a slow drain if you're sat
+        // in the relegation zone deep into the season.
         setWorld((w) => ({
             ...w,
             clubs: w.clubs.map((c) => {
@@ -3557,7 +3582,15 @@ function App() {
                 const divRows = w.clubs.filter((cc) => cc.divisionId === c.divisionId).sort((a, b) => b.pts - a.pts || (b.gf - b.ga) - (a.gf - a.ga));
                 const pos = divRows.findIndex((cc) => cc.id === c.id);
                 const inDangerZone = pos >= divRows.length - 2 && week > 12;
-                const delta = inDangerZone ? -1 : 0;
+                const myFixture = fixtures.find((f) => f.week === week && f.played && (f.homeId === c.id || f.awayId === c.id));
+                let resultDelta = 0;
+                if (myFixture) {
+                    const isHome = myFixture.homeId === c.id;
+                    const gf = isHome ? myFixture.homeGoals : myFixture.awayGoals;
+                    const ga = isHome ? myFixture.awayGoals : myFixture.homeGoals;
+                    resultDelta = gf > ga ? 1 : gf < ga ? -1 : 0;
+                }
+                const delta = (inDangerZone ? -1 : 0) + resultDelta;
                 return { ...c, boardConfidence: clamp((c.boardConfidence ?? 62) + delta, 0, 100) };
             }),
         }));
@@ -3627,16 +3660,33 @@ function App() {
         return world.clubs.map((c) => {
             const slot = controlled.indexOf(c.id);
             const isHuman = slot >= 0;
+            let row;
             if (isHuman) {
                 const stats = managerStats[slot] || { wins: 0, draws: 0, losses: 0, trophies: 0 };
-                return { clubId: c.id, name: managerNames[slot] || `Manager ${slot + 1}`, clubName: c.name, isHuman: true, slot, reputation: managerReputations[slot] ?? 50, wins: stats.wins, draws: stats.draws, losses: stats.losses, trophies: stats.trophies };
+                row = { clubId: c.id, name: managerNames[slot] || `Manager ${slot + 1}`, clubName: c.name, isHuman: true, slot, reputation: managerReputations[slot] ?? 50, wins: stats.wins, draws: stats.draws, losses: stats.losses, trophies: stats.trophies };
             }
-            const trophies = (c.leagueTitles?.length || 0) + (c.cupTitlesWon || 0);
-            const mgr = managerFor(c.id);
-            const divIdx = DIVISIONS_SEED.findIndex((d) => d.id === c.divisionId);
-            const estReputation = clamp(40 + (mgr?.ability || 50) * 0.5 + trophies * 10 - divIdx * 3, 5, 99);
-            return { clubId: c.id, name: mgr?.name || "Vacant", clubName: c.name, isHuman: false, reputation: estReputation, wins: c.careerWon || 0, draws: c.careerDrawn || 0, losses: c.careerLost || 0, trophies };
-        }).sort((a, b) => b.reputation - a.reputation || b.trophies - a.trophies || (b.wins - b.losses) - (a.wins - a.losses));
+            else {
+                const trophies = (c.leagueTitles?.length || 0) + (c.cupTitlesWon || 0);
+                const mgr = managerFor(c.id);
+                const divIdx = DIVISIONS_SEED.findIndex((d) => d.id === c.divisionId);
+                const estReputation = clamp(40 + (mgr?.ability || 50) * 0.5 + trophies * 10 - divIdx * 3, 5, 99);
+                row = { clubId: c.id, name: mgr?.name || "Vacant", clubName: c.name, isHuman: false, reputation: estReputation, wins: c.careerWon || 0, draws: c.careerDrawn || 0, losses: c.careerLost || 0, trophies };
+            }
+            const played = row.wins + row.draws + row.losses;
+            row.winPct = played > 0 ? row.wins / played : 0;
+            row.played = played;
+            return row;
+        }).sort((a, b) => {
+            // Ranked primarily on win percentage — the thing that actually updates every week — with
+            // a minimum sample of games so one early result can't rocket someone straight to #1.
+            // Reputation and trophies act as a tiebreaker and rank anyone below that games threshold.
+            const aQualified = a.played >= 5, bQualified = b.played >= 5;
+            if (aQualified !== bQualified)
+                return aQualified ? -1 : 1;
+            if (aQualified && Math.abs(a.winPct - b.winPct) > 0.001)
+                return b.winPct - a.winPct;
+            return b.reputation - a.reputation || b.trophies - a.trophies || (b.wins - b.losses) - (a.wins - a.losses);
+        });
     }
     function offerContractExtension(playerId) {
         const player = world.players.find((p) => p.id === playerId);
@@ -5124,7 +5174,7 @@ function App() {
                     React.createElement("div", { className: "flex items-center gap-2 text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } },
                         React.createElement(Ico, { e: "\u2694\uFE0F", size: 13 }),
                         " CUP COMPETITIONS"),
-                    React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Every division runs its own knockout cup. Each one's final four automatically qualify for the cross-division Empire Cup, which kicks off once all five division cups have gotten there \u2014 win your division cup, and you're straight into the last-4 draw for the big one too."),
+                    React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Every division runs its own knockout cup. Each one's final few clubs automatically qualify for the cross-division Empire Cup, which kicks off once all five division cups have gotten there \u2014 win your division cup, and you're straight into the draw for the big one too."),
                     React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-3" },
                         CUP_DEFS.map((def) => (React.createElement(Pill, { key: def.key, active: defaultKey === def.key, onClick: () => setCupViewKey(def.key) },
                             def.name,
@@ -5133,10 +5183,10 @@ function App() {
                             "Empire Cup",
                             empireCup.champion ? " 🏆" : "")),
                     isEmpireView && !empireCup.started ? (React.createElement("div", { className: "rounded-lg p-4 border text-center", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
-                        React.createElement("div", { className: "text-xs mb-2", style: { color: C.text } }, "The Empire Cup hasn't kicked off yet \u2014 it draws automatically once every division cup below has reached its final four."),
+                        React.createElement("div", { className: "text-xs mb-2", style: { color: C.text } }, "The Empire Cup hasn't kicked off yet \u2014 it draws automatically once every division cup below has reached its final few clubs."),
                         React.createElement("div", { className: "space-y-1 text-left" }, CUP_DEFS.map((def) => (React.createElement("div", { key: def.key, className: "flex items-center justify-between text-xs px-2 py-1" },
                             React.createElement("span", null, def.name),
-                            React.createElement("span", { style: { color: divisionCups[def.key]?.top4 ? C.green : C.sub } }, divisionCups[def.key]?.top4 ? "Final four set ✓" : "In progress"))))),
+                            React.createElement("span", { style: { color: divisionCups[def.key]?.top4 ? C.green : C.sub } }, divisionCups[def.key]?.top4 ? `Qualifiers set ✓ (${divisionCups[def.key].top4.length})` : "In progress"))))),
                         allTop4Ready && React.createElement("div", { className: "text-[10px] mt-2", style: { color: C.sub } }, "All set \u2014 the draw happens automatically the moment the last one locks in."))) : (React.createElement(React.Fragment, null,
                         cupObj?.champion && (React.createElement("div", { className: "rounded-lg p-3 mb-3 text-center border", style: { backgroundColor: C.cardAlt, borderColor: C.amber } },
                             React.createElement(Ico, { e: "\uD83C\uDFC6", size: 18, style: { marginBottom: 4 } }),
@@ -5150,9 +5200,9 @@ function App() {
                                 cupTitle,
                                 " draw happens automatically at the start of next season."))),
                         !isEmpireView && divisionCups[defaultKey]?.top4 && !cupObj?.champion && (React.createElement("div", { className: "text-[10px] mb-2 rounded-lg px-3 py-1.5", style: { backgroundColor: C.cardAlt, color: C.green } },
-                            "\u2694\uFE0F Final four locked in \u2014 ",
+                            "\u2694\uFE0F Qualifiers locked in \u2014 ",
                             divisionCups[defaultKey].top4.map((id) => clubsById[id]?.name).filter(Boolean).join(", "),
-                            " \u2014 all qualified for the Empire Cup.")),
+                            " \u2014 all through to the Empire Cup.")),
                         React.createElement("div", { className: "text-[10px] mb-2", style: { color: C.sub } },
                             "Round ",
                             roundNum,
@@ -5387,19 +5437,19 @@ function App() {
                         ". Popularity rises with wins and goals, and drives both merch and sponsorship income.")))),
             tab === "results" && world && (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, "MATCH HISTORY"),
-                React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-3" },
+                React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-2" },
                     React.createElement("select", { value: resultsFilter.season, onChange: (e) => setResultsFilter((f) => ({ ...f, season: e.target.value })), className: "border rounded px-2 py-1.5 text-xs", style: selStyle },
                         React.createElement("option", { value: "all" }, "All Seasons"),
                         Array.from({ length: season }, (_, i) => i + 1).map((s) => React.createElement("option", { key: s, value: s },
                             "Season ",
                             s))),
-                    React.createElement("select", { value: resultsFilter.divisionId, onChange: (e) => setResultsFilter((f) => ({ ...f, divisionId: e.target.value })), className: "border rounded px-2 py-1.5 text-xs", style: selStyle },
-                        React.createElement("option", { value: "all" }, "All Competitions"),
-                        DIVISIONS_SEED.map((d) => React.createElement("option", { key: d.id, value: d.id }, d.name)),
-                        React.createElement("option", { value: "cup" }, "Cup Matches")),
                     React.createElement("select", { value: resultsFilter.clubId, onChange: (e) => setResultsFilter((f) => ({ ...f, clubId: e.target.value })), className: "border rounded px-2 py-1.5 text-xs", style: selStyle },
                         React.createElement("option", { value: "all" }, "All Clubs"),
                         world.clubs.map((c) => React.createElement("option", { key: c.id, value: c.id }, c.name)))),
+                React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-3" },
+                    React.createElement(Pill, { active: resultsFilter.divisionId === "all", onClick: () => setResultsFilter((f) => ({ ...f, divisionId: "all" })) }, "All Competitions"),
+                    DIVISIONS_SEED.map((d) => React.createElement(Pill, { key: d.id, active: resultsFilter.divisionId === d.id, onClick: () => setResultsFilter((f) => ({ ...f, divisionId: d.id })) }, d.name)),
+                    React.createElement(Pill, { active: resultsFilter.divisionId === "cup", onClick: () => setResultsFilter((f) => ({ ...f, divisionId: "cup" })) }, "Cup Matches")),
                 React.createElement("div", { className: "space-y-1" },
                     matchHistory.filter((h) => (resultsFilter.season === "all" || h.season === Number(resultsFilter.season)) &&
                         (resultsFilter.divisionId === "all" || h.divisionId === resultsFilter.divisionId) &&
@@ -5568,7 +5618,7 @@ function App() {
                                     stats.trophies),
                                 React.createElement("div", { className: "text-[8px]", style: { color: C.sub } }, "TROPHIES")))));
                 })),
-                React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "ALL 48 MANAGERS"),
+                React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "ALL 58 MANAGERS \u00B7 RANKED BY WIN %"),
                 React.createElement("div", { className: "space-y-1" }, allManagerRows().map((row, i) => (React.createElement("button", { key: row.clubId, onClick: () => setViewingManagerClubId(row.clubId), className: "w-full flex items-center justify-between text-left rounded-lg px-3 py-2 text-xs border", style: { backgroundColor: row.isHuman ? C.cardAlt : C.card, borderColor: row.isHuman ? C.amber : C.border } },
                     React.createElement("span", { className: "flex items-center gap-2" },
                         React.createElement("span", { className: "w-5 text-right font-bold", style: { color: C.sub } }, i + 1),
@@ -5586,6 +5636,7 @@ function App() {
                             "D-",
                             row.losses,
                             "L"),
+                        React.createElement("span", { className: "font-bold", style: { color: C.green } }, row.played >= 5 ? `${Math.round(row.winPct * 100)}%` : "—"),
                         React.createElement("span", { className: "font-bold", style: { color: C.amber } }, row.reputation)))))))),
             tab === "guide" && (React.createElement("div", { className: "space-y-5" },
                 React.createElement("div", null,
@@ -5628,13 +5679,13 @@ function App() {
                         ", and even then only one facilities tier roughly every two seasons, however much money you throw at it. Big infrastructure takes time, whatever your budget.")),
                 React.createElement("div", null,
                     React.createElement("div", { className: "text-xs font-bold mb-1" }, "The Board & Your Job"),
-                    React.createElement("div", { className: "text-xs", style: { color: C.sub } }, "Every season the board sets a realistic objective for your club \u2014 win the league, push for promotion, avoid relegation, or a mid-table finish, depending on where you sit. Board confidence moves at season review time based on whether you met it, and drains slowly if you're deep in the relegation zone. Hit zero and you're sacked \u2014 pick a new club and carry on. Separately, your Manager Reputation follows you between jobs, tracked independently for each manager if you're playing with someone else: a big season (a title, promotion, heavily beating expectations) can be enough to earn a genuine job offer from a bigger club, which you can accept or turn down.")),
+                    React.createElement("div", { className: "text-xs", style: { color: C.sub } }, "Every season the board sets a realistic objective for your club \u2014 win the league, push for promotion, avoid relegation, or a mid-table finish, depending on where you sit. Board confidence nudges up or down a little every week based on that week's result, drains slowly if you're deep in the relegation zone, and moves more decisively at season review based on whether you met your objective. Hit zero and you're sacked \u2014 pick a new club and carry on. Separately, your Manager Reputation follows you between jobs, tracked independently for each manager if you're playing with someone else: a big season (a title, promotion, heavily beating expectations) can be enough to earn a genuine job offer from a bigger club, which you can accept or turn down.")),
                 React.createElement("div", null,
                     React.createElement("div", { className: "text-xs font-bold mb-1" }, "Training"),
                     React.createElement("div", { className: "text-xs", style: { color: C.sub } }, "Set a weekly Training Focus on the Club page \u2014 any stat, or Balanced. Squad players get a small weekly chance of improving in that area, faster the younger they are and the more room they still have below their potential. It's free, so there's no reason to leave it unset.")),
                 React.createElement("div", null,
                     React.createElement("div", { className: "text-xs font-bold mb-1" }, "Competitions"),
-                    React.createElement("div", { className: "text-xs", style: { color: C.sub } }, "Five divisions. At each boundary, 1st place goes straight up and last place goes straight down automatically \u2014 but there's now a one-off decider in an extra week after the league season finishes, at every boundary: the runner-up chasing promotion from below plays the second-from-bottom side fighting relegation from above. Win it as the promotion side and you're both up \u2014 and the team you beat goes down too, on top of the automatic bottom side. Win it as the survival side and nothing extra moves \u2014 you both stay exactly where you finished. Level after 90 minutes goes to penalties, no draws allowed. Every division also runs its own knockout cup \u2014 Premier Cup, Next Up Cup, Rising Cup, Emerging Cup, and Sunday Cup \u2014 each with its own winner and prize money. The final four of each division cup automatically qualify for the Empire Cup, a 20-club cross-division knockout that draws itself the moment all five division cups have reached that point, right through to a final each season.")),
+                    React.createElement("div", { className: "text-xs", style: { color: C.sub } }, "Five divisions. At each boundary, 1st place goes straight up and last place goes straight down automatically \u2014 but there's now a one-off decider in an extra week after the league season finishes, at every boundary: the runner-up chasing promotion from below plays the second-from-bottom side fighting relegation from above. Win it as the promotion side and you're both up \u2014 and the team you beat goes down too, on top of the automatic bottom side. Win it as the survival side and nothing extra moves \u2014 you both stay exactly where you finished. Level after 90 minutes goes to penalties, no draws allowed. Every division also runs its own knockout cup \u2014 Premier Cup, Next Up Cup, Rising Cup, Emerging Cup, and Sunday Cup \u2014 each with its own winner and prize money. The final few clubs of each division cup automatically qualify for the Empire Cup, a cross-division knockout that draws itself the moment all five division cups have reached that point, right through to a final each season.")),
                 React.createElement("div", null,
                     React.createElement("div", { className: "text-xs font-bold mb-1" }, "History, Stats & Achievements"),
                     React.createElement("div", { className: "text-xs", style: { color: C.sub } }, "Menu \u2192 History & Stats has final tables and Player of the Season for every completed season, all-time top scorers and MOTM leaders (tap any name for their full profile), and a link through to your full Match Results (filterable by club, competition, and season) and your Achievements \u2014 37 in total, spanning money, goals, trophies, promotions, win rate, and more. All of them are measured against where you started or what you've actually done, not what you were handed at kick-off \u2014 so picking a big, wealthy club doesn't hand you a head start on the achievement list.")),
