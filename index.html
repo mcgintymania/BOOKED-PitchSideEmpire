@@ -289,6 +289,10 @@ table{border-collapse:collapse;}
 .gap-x-2{column-gap:0.5rem;}
 .gap-y-1\.5{row-gap:0.375rem;}
 .items-stretch{align-items:stretch;}
+.text-\[7px\]{font-size:7px;}
+.whitespace-nowrap{white-space:nowrap;}
+.inline-flex{display:inline-flex;}
+.max-w-\[60px\]{max-width:60px;}
 
 </style>
 </head>
@@ -325,6 +329,7 @@ const STAT_LABEL = {
     pace: "Pace", shooting: "Shooting", passing: "Passing",
     defending: "Defending", physical: "Physical", goalkeeping: "Goalkeeping",
 };
+const LOGO_DATA_URI = "data:image/webp;base64,UklGRmZYAABXRUJQVlA4IFpYAADQMgGdASq4AbgBPlEijkUjoiGTyR40OAUEpuiYgx4c9EHIwAc95iRgf/Tm2wEhQ9H9h/IDyUY397/ZP7z+0/9x/bv55bL/W/7r+iv7d+1v3j5l3TXKX+l/un7u/4r/////7sf2n/Hf4r9tP3////4X/LX+j9wL9Nf8z/e/8V/1v7X8ZP6u+5H+r/7v1Bfyz+m/7n/Efvd8wn+J/1X+f/e75I/3P++f7v/Q/7T5AP6V/Sv9x+eHxg+xp/gP+p7Af8q/u3/M/P/4u//V/m/+l///pM/p/+v/9f+w/f/6If6P/g//R+2n///8/0AeuN/AOpn9G/w/9O/IX31eDn3j/A/4j/Wf4T1f/HPpX65+S/9Y/+P1rYZ+wD/V9D/499ofwf9z/yn+p/wf7i/ez+4/335a+gvxJ/wv8D+6vwF/in8j/wH9b/bf/Hfs97wf+V3L+r/8L/u+oL7efS/8t/bv8p/1/8n8Tv1n+m/wHqd+//2j/P/278XPsB/oP9J/xv9v/dj+8////5/GH/0PIC+0f9D/Sf3L8jfsB/k/9M/0394/zn7K/Gh/sf5P/Ufun7s/z//A/9T/If5z5EP5X/XP91/eP8//8f8//////96Psp/cn//+6p+vX/6Pwkwnr1eGcl7mv7asSqr0siZAtyaMg+5JhPXq8M5y/jSTCMfbwEP//+rQhDGASX6QrV41UZ5+PTOhDO7bcdqTczpU9Dn6ZPno+AgICmEqrG+IlNUx51z2BL8/E2/VXBn2/DJLGV+Wufoz/mGirBj5hUimjPlvFgB+z7w5JhPF/MN/PR7kdU+JmdaThvjkfkO/Un+CXDwwRigoNAKvSoWA2uZAiZmP1e4/SPD3phnrzatr/PyR0psVPaozfuWbQoNE5RCMWkBH/ZFAqX/wn3SbWlsNAKH793Pzit1SbdLMdOzg1lXC/kTtGhhLvj/FHhbDnTUCmf+RilKqXbTIO9c6jJEL3XIely+IkEqmddx/8CbZGXgf3CrCNClWKsVL0k0HoZtq9NTJ//25abaeHexrh515DAMToohlpuOM4SrcNg5tglSdRZQx3VmHFaOqpyIYBRvrq/iNP/Z/46Oq1qUeZ0EWMy+jlljdinnTUNnzeLz6cbb7CQvwDkQEDkHVlbzIg58/iOBFDLwsibs71xSMvq3ra2nUqguIBQ/6TA4AE7M7JWToTmaZ3aJdPXT8S/B0qufjyl6ty/1EAFyE8cesWVU8dPB14flOygeMxJn7s6y7P1jXgSxJaIaGDLpk3DOsLHh5c8cRzvk9mKKcBzcWdimSEpirQ+l/6tXyJ0LicDKKDg8/zVPomb9H1mkm2KurvWL1ucikbRjRxHWiP5P7Ai+vlx0AYgOz6tsjJpJQimDzQ1pj6QsYtabSvXGKY4egRifIxhHHf7CO0dI6k93+2HkisRK8FRN84FAhrQyUcHcd55N83JAntH9d4Jnw4F69nJLpsFJAkgO6YDV7yIRvO6ggLP1wz+3Tc2kpmyu48SL2RERaROGGOha2qnKkx1G7Xlm3RYQI8+CSxob58sWKbl04kHLbAO4dYtI20JAM8dSge/dLa8sklYWBznthURx05kHK1pyAOP+/n6K0N9xvQc3bghefOkyKWKoIKxZVkYUmXTqU6pMY3GNnlWM7/tBDwB3cy0EES5RTOv3VameGljL0zjlwWD5kQJR6IDnBkpinQJHKJ2C3C2bWURtTOLpKzXvWGQ1yPpTh3B7ImQ6xmGWAVaJncAvfzPmey85Rh3q/pnvb5tmBnj2Wntn1uywyl7SJZWU1iCgtf0aPtGPcpMwi41O0F96oAN27wplXQkDu9GgDWmFFAdytAe6gQZYTfPmwXO3RSzrkav+GEe0V2yTKQRApTE9FDJxmQ6Vep2PBBfvQU/bbG+jQHvZ0E6NipL7JsRqVYI8dQNVyEKU6ha9cbA5m6eNH1tgPctrw/0caTnH+aeldDQOfhKPeVbrNEuojpJVVujiTxavtOSHjldwax9pck4srHPWaObGsT3jMImDTK2/8InJaCzpopCSp4S9oGdTKne+56UgtJjs9MBCGeE2z6bCc5nPAV8YVssAeoZH9+43FItMPf2mZL30POBAqRAg/7Zjk3QHrB3RFCOdysPiyRQIvkr4F6KvCPECMKAu39b6QEcOh7ZPBnM6epR7wF8lIW2Cys0ww+rq56slvcn1G02BqXmw5nfUP2GMEnsFX+ZJklaDXbvt8Vp6SOGhAIvgiYdJ6ca70BoGhvw0JktYkZfHhSaR1bohr20zSZzk9tL2UY9Z0AHyH2A/H19Tg8f5OcuL8kMKVPhqs1JbjgVR/9R4ktE9nFn8PTa9ni2gVfYrIhb8LLsSsHp/TBEID6gk3vaI6DwqMCSAjedtod677LkvcMLcL889ZMFCOUCuAKPRftW57erocHM+V3OAx/4z9Yz7eL8YUT/RipzOiLg0kmK9YJ9wPre8xGNJc3LPlql08w3UIOnJKUh942/BmCz/VQ4F0DBy0M2DoYOAQX/V2jsmBQnsp5gF/hUMzypb8ki6uwSgS2za0Un5rLXdIF736uIhK01g76GINs8alDQQRNwLWw699/23DxxEFFqS/F22V3m7NS3pa06P1M8jqD9EodM4flcqkfNibXjh1WLlxJ/4Ru44PogtSdPWsI/p1gsbkbe/QhQqbiwZ3j6kOnGuLRw12evNs/0BNF/IIAkex85VYfuU2fpX7/ltNmCiTRlCK4p6t7jcvvX/0CeAWxXiKbjSv2NTyonT3eLpkWP8Xyu3RgCdQQ+JfQ5dX9paULwVQz1u3b3+ehw96Rq7g2IfmrdvAuQk/XMV/tWnNMu5SMNXTnai7tEoZ08kpi9SeOMUuxHXItghaUYamNkrXY+aDtDlpLBiY7LpTRpU/AbNJjHaZ0m9MezuaU7l4kSl9IhrgYyGSY8OOE5ZhFydQhuxs9ZsvHEjGd+Gv/Acup2pMDSMg7S0sTnE0Nom5ZGNuEK2uI+PJ41O6J7q35gvX3rAGCwKvKMboxf3Q8S04A1zPt7W28rblIajJf/4/qJR1N6TWawxCI+vAjmoJoJijFXh8LhHXASPFlF38BrqTB9uOKQnUITEq3288/QasE3x51sOFhySoZfcYwT+lHpTHHzjawS8fENf6IeW3kZQ/uWg8EPl7Gj2fC6uTpEI/RfkmPPoko6riBRFVn2fbNgqOVf3IqRDJqEtbH3umMHpQlEndZy5q78k/uMHsWKqS5e/ujC9Dy7eArnD+LgAHtDbkBTj4rCeLS41lcvvtlBJnrLTjlIAA/v3EiutzMu4RrGRcOu0Er9UMEYrzPZ2Al5CWcLuv/ODHW4Mr0nLynrOtVimEJPTh1zRLJrDkXbrCg87oktKUluSFV9CzSfEhd03/XbGTVdOnDwXt2RyjkyPrECpJe/gfOMS11LWm5bJjncVPl68HECgjVIvVYcTDJX0adQb0foyzEag2UBPcYiatq7F8IwCccxC0LaIM+K8FKRp3MslhtQcO40KVjL566MqmmTfFq3LRQNXGXE1e9HAy+rgxVU8467guGsL0jrylP6UkuAmCnVlWtltHnTTSLEF9W8UHjdNdp3p4yMKAw8f17jnc05AEDDr7hXVUs2T4FZx25WBgtazNa/kTA76nlEYQyHs27SZeQ3Fkb+DkKW9wX8CKv1vgjMnR/JQFfihcEifESduQpq4CELrWNn4MxsAYD0pSB3pT51EUKKs+jlh2QBGs/NKih2vWxmvd5JRh6evGxJaEEBCmhfiybFxsgsaza7K/LHQpxe/Tvn7iaVbWBMMiTPg7RgzaSag+hphvbF1zZq/E7YV9JD5FIqT09FFa6ocAfwntim9c+4p6A6KJVvQ31TEx7hC23OTjyKNBKAknPMN93GnU722fuh//cOCgnB9Dm8lqgNplesJCOr8snNF1KZwcgQO0kF7uMJUgjPbUZwm1zyfFjcgZR4ctcaJbWGO5sEnR8slEHgz/BMzGfJS1gvL3osZ/GZhEsqPzBFEDrhoeweutdHuXLJ+PG/sk5218rxQnI0qGHXQner5WfZdIP3rP4/8YrOgXOV+KM6+FaHeIjRgKcybZ3lESyYXh7Wx+4ACmQTWBm2sC7IljQwHaYWq2egCZ4oVZKOsFkkxYUNPQ6AN6DXkBCviar4WzNMOqIB87Dwaz7QlbAw+aEYja8JQab62u8f0U0u8eqijqY7vIcoYMt3/ibKWFukucQIdDNRa0954AkkajHikk/LahbWiheZ/fY23f2h3Weurm78fl1OVVgI4VNuUdaT+MnhM0x9jGpxEGMXKlRaFezPod/N4V2p+7QJVtEowIIq3GJ6Rj4OMM0GAJZ6l3IhVT5BMIYvrORbRj5+tWNCnskwa/w4bbWOGjfmOUEwPK6SaspzBdt79KrhgPfBZ0IAdZJL5NvadLbxTaCikmfEu7AHWcha9+T6qM2xjY3ObEfXOcdO7t8n0UHzvaXvWrSzpGbnYRsWBx9o7GXmNmkxiAAXFTVKPBzzcL9qzfoekrB+AKrTwxQ6Ab7S2n57EZErazgPMiq7RDapDTjI5ZJWIsYrrmvNiMGRkHrKRHkL2m+En3W1ZbvDp6haVIBuoodGRYPeFadhy3mprjvYvRzpp0pNNGBYIvxy11hnV0exXx2HXyJNlAa4GSwITGQMdldMWnc297V8S+zFXrj6Kb4d5BhB9dVGDMqvArSJBFx5yLlGUwE4+VeQR8QrZJsdGhfKaOIN3lzPXPOr+wcv4mHtPAOoYgTEvfB6eGx0leT9xGnLvwRwP4XruTMp97fUtmwShd1Odq6AoF+cQ2RVQ7EMlehtGYYVXVkaenuZVWyZP1aBQVMlN9ljQCKanhdkUyQbQttAx/HSWdzzzXH4+BC+yrbG/VI6s4Rl9Qg+qoAP2dd7xE0FZ/pM/veIU+DQn3GanXeUUL8QHW/RRDAwAxmVgAG1Dwec+mFfehB54A47eAKOnJdDraMI777OOwJoqtpkAKUtcykeFEgZJonkfbzi6+g8LnnWKn7dti6Z6p15f3tW65/VaZ4xg0NIY11MhxJejrOdJ5h+ZYAju/ntVEyQa9eXHqK23IOts3QVG1mqkoa3kZVj4rezLl0d4sErl74xeh9HIxZFM3TQ8U+b1AuqDI8Ouq/aCEfN1D/j0Std52PXQjQcsmH0ijq1ESDO/299JnOiIWup314aVe9S3z4wumhnOqT/lbqRu35HJ3t+P3ZQZJ96NNH5Y+O3GD1mRXnOqssaVjv0uk7IW8WiiiYrAoE1CZmvh+bCHXUxfaSJLLSYRv+gkhpR/6W8DH3mItk5P+wLKHIbxikoHzT3/eOstjKlsF5Ir8Y20jzpxcLLKL+N91iR5+RMABdWWMHCrPLkwR3YMoS6yJvuPPEzYEBRkADMgBFip3773o7gDJf2Fn9hoHWgAF1Kdu43h3UR2Jdn2dgM/aQ2EzN/8/vjgNSs/vZ8m/H1/VefPfz/yTo1cSClzcR3EW1F6MFlVhtq0uma4jICCS2Mz3HvaNRxWhYKocb1xsij0nOhx9cKt4Q3xQJDFfbQfrEICjhqZXi0MkYIuBGsTpOW5yydWy3In2LjEIhBq06IUhrNA3YGHDtC16pl/WSqvilmB+ZNT0Tyb+GapCJeAiMeWsg0+UFKMB1MKNv7nrxOai8yb6IrfFL75VM9gWABJAADW9wgRhYye8fzxV3fhfkLN6bpsvu0OASMjdPiCHiknWP9/BeKzmcw/iWHUrj+n1QmlwRN1GL4Xabog33FR5DlxGCmoFBVo5Pt+cuZ8ne7CMewO4WNxcamkMnp/JadqZKV+7Y7KWR2KCfMrc4SRdjH+k9/7zKYVVkgU8KRNVWbUY7ltQWRf9y/mQZBzuQsY1vZ/7q0lsT5MbJgy9LaLfIuHD95lWmq/BNDVNAgGR0OS37DnWU3Dth7MpN38hnfqJsx/x736rsLvwhAzCg5fLChmijg2K5KRB4nYKhlmAlVoHMVd0NOlWX2t265KHSDEwNzYIF62sdkWOw1JGaM9O+K0fIHZSqeKWQyLHBXxa/Zp5Tpjp+aSkDqibwCIoZ7YdQ5FqleSWm+XHhxOAEf7Q9AIuk5GM2WjFc0KAxpvD3PKd4A5hcIS+uWfrovccuFJL56komAWU9KzJml6/MUTrmB5eTBUqpHlblfBFRII06BW+rL1bDEs4CzigZR9LOuRMQARTKTEc5CA/bPR0Ab7q1VHbZjBTqCE1zo3ApPdrOLwpQmnB5TOtTqCAWXB/GEBH81ExU7hhwlILTExnQ9piaKiYxFdy+rk5ajDeUS9MOb5s0CYS1OOyW1QWPUY1Sg6oK+fOaBwDFDGO7zGVxguu3UYZ2jej6cp2s30VYdeeE82R1JTeqWdGvTugrrp9a0W9wbnt1/An57T7+2KsfFfUPjWelHv97udZ84S5ohFbdbyAWUIWNXcdNssa+5M+Xn1NX4GiJivq+ZSoxNbDbfhe1WYWolTLKVo4ulMWUsSh8M8hWO4GrrRN7g5/nkf33980X/hdQ971Z5hIJxmvjOwSZOja1RA+49Kp9TKRZNMFBrzgArtv5dLjFqTov5U0r6sLwOyPvHXxniPL87IErXeespNA02039kpgHeA6dqze1xxSFpwNNUKorc5OT10L7K+VZcUQ2SGFzyQsbohiI+VDnISeVYR2UVj2+SEzm8JmbpzU7SfYow8M7SASfcHOYBJtgAF07CAImNVkw9F6Q/Dl87nWRjU/uFxsGMek/NqDPOR+c1vIa9JREVRblYkVhLupYqZrhfjjyEZkkTGD97ad2tRWAso9bbxakXKAbqvvQi3SIVO4NP2noFaL1ecE+b6K+uoJOcQkKYMkHIjFl8rIQ7MkyPk9ZCxyyA19QxTNZJF6y2o29iFcITXfqVKwGcuKXkNsXx4tp6knMGj/9ftLiYDy7omoppja5t4312d1FrdKkNuqqAJfScA/lltafgASN4myYfFwrh/hnDr+mgRkldwPL9F/xikcWe6E8VWLmBj4c1rqjM873xNOe5ltf2+JLlHrJ5sD5znHCHmQxaMr4kQOIuwGjwH92caCh/6k7s042+LLmR8vhgGUCb7AGaxCMYLKscr1dpZxhC8VOA/cw4K4FPVC17xaSgTSzTSnNNl79mdmSaojIXPUILZSNeNEU0Gc+/Ju4IEYerkbqR/xwHYqSM6tXygv+E6rxYnG6a0Ua8+baRaFLKtuT8sQknm3fv5XpxCDftjYEU1r+KTTrKrlZ17QOjh88295acX5nd504gu/vWdP7aGPIN5a4iHizjInMHEPBLs1x5xFhDTnrGjS90/Gmk5s3jl3rn6r1hFVKMCoBA5kfr7zrQMd0PemDoh9hJcVDo03VPLwptI4SV8UHyyniG2CJF97Rj4/JoilgE3+BSX8NQqRFojiHOgWxi7iYRk3cUlGyQlNkc93Sbx8C8yUvUQa+G/wpskrq8Y9RVbbK6WEMVwM0KbMiRof8J5341GHS0dikuAjTfDLF2dfe9dvZcFBhaJcpjixh0Y9Q1zHzPgwWuhLBcXL04nNaxvdCc5LZFXsN1A1R8X2/ILAQ9nPaHjsiMuNKANtgp/3cGcooSP615NCgc0TOX/fOn2gV/L2Tf+upAq3YBvLTCDW35FVdZU848aWx2Y+qGGQywDyOAbYy5lk/wnqe4Up2LJrLu2Z6FdkmNq5bAw7I+jUnYt23xGGZnZIChVSJCCGJew9InUDDZeW2lnljtk7UmocHP2deU4KDpNh2EXZSiOSV5ySMOLl2pXpXckqKlP9JDTRIeDFVm1r8e+aH70pMpclXA6Tuf8b+gsWM7CDv0Y9fOQF4Vyd+YJIuBJyz8vagITKC+IoKHA5ZHZIzSuDbjt0sqrxUjxKEeab7q9XieScvAdDVtw034Mh1X7/MSwhf7Ww1MuDvlqOKw5x8ALZLGBySgAabLp+Ar1U4uXl4yGU+97VxtItHCSgJz0Z4gjs6YYj8prdlfzimM9c27o7R7kIBUighmSk9d7J0ulzFtI4uyQewi38DNQRbMjWFMYx/w0+5tVYdWTSuji/lmYwqjh/DWvBv7czIVu8FpGtEiWx0GZPmhOPDVbRjISYNUmVK7CXDyTC+fMXVacJ5HYnP9tfJDXleH4JjjTIs2+6e1aa8La1lzxe48tv8PTvjYK9T5VurqhHWDWKhptJozsVECyAmHI5MpE+UhvbHP9UxLKtKO+r796KuAAgfUnKpQ8h7p2A4wS6wo1H25caO3MR09b3ZfUktnBd8MVY2tW3CnIplXYrnZrw7zdkdYdVY4+fbGB7rCyq8ePXiPx+kbpuWazJyYy4OuglcO39Il62w720A38PXydavI8MKHgKFSnv+zkEyW3ApIrRMRiOJhyPOiRwHALIgMPZowLvNY7TRmY1EytvznSrsOJnAFZGQ3ER+Ri7KlQgCdv/blKfgFUyDdIIDeAhwBSpJJ38VrDkAlNbYU6K1KMAA9kDcIG4l8dgxlFOPSJ0hqRiVKCZJTUP9zDwCrcmiLypybV6/TOszsiTWQCjJBXkT59GDUMhlJpnMaQW5KwwJPMj4s1Y0K9qmisarNlRSyTaZaZoeR95Afut8CqFXcvrqvHOhcBn4tlP0FgPWM4MtH6vKJ7/UGJXU0tKThzhUL58FhFlNuP4uFQ3i72PBpeK8eWQnOiBQ/FhFrpZh8E/ysFvtQtv9jH42nlRy7vFrd8iYDQRSCvVW2DPozSXd6xBrWFVZgSCzjDfnb/z8pan7gLYOXTPTRiNEk732GhP2vNHACmT7p8FIdaWn1VxjI96XfPYVDf8VuYww6zKyQT1NtquqNKVgkP0OQ4YF0mVRLW3W7XKwcAMpYc2iTWTuF1vGovJGlKa61vyLATiBl2aYFZECxbDdGab1QQy47qwEKn/nv8XpIHL0/aMSSRNOu182hrL7R0FyS1I/CUc1sfJ+JpL4PNPBnk1tyiLKDU5SCWPIx1lFAKykNVorzlc/8crLVqj59q38+sqxaWcZdJVQFd4pbF4RqZ20oE2AD9TxgCZwBHgon7EP8JWd0tqjSbQXTnf8r5QdK8n2gAjZLtK8ort7uJzyglmP84GdsMC1feVm+gTraPS0SIXLgJ39bS1DC2jbXsqRpPEzLHFjtXgfS7PFjtiDxKcvxPjbLad1FM9TBHUmtdVDvc4o0aNE0xSs96zE7EJcktCBb/dCgYWE1ATskO6pQFuD3YZAG6GyLsrZ4NLJc6U8vykQ5Ta9P93uFJWetFT+v27ovZppHh9Io/IXEYLD2SCH/Q78OGN9pDB4PbGIcKzkUaZjdlf2JRO5KW3ZFkqBW6lyBDDvJPKE+vyjLrhbv2V00BGQfC1tdAAADFJQLM2fintHM7tJY7wAjJgls/EHxi9FphkKmHH6rYadVdhUscjE8eWuNYFbnIWzI1o4lSpdOG6xGsrAGBnFwZ8nQ13O0xx/RcLm8vux8s2mO57CVeUj0lGjIHVAw9ryj1ivU/3scGRPn6KTEkcXVdrxhCDpkMeMtHttWM3fkV2vwAGJ/XWlGeJ2E91ASYTXAlNSr6IuQyEcLUFuz27TQWQ+q55TU5DcVrWgDHwT9Vfsid61v3ukEoWWIaiPow9Uj1atHbtkV6wUvZit3zatyieR00t1VNMPiLt2QvBZ9eOjeLyJnIkS3Gxgt/SOYOni5d68lwmk4/PSoBTeQixCPeNd73wyCV4YZtxjhRbkhBsP8ZoNQomCU02xCSsycY6zSgN2GlkBimqIH/xa0mW/cr+G8TUhppmvzV2XT6Lj629F3KROxPFY7SodkLXYpKZL2RY83juWyJo0eSLUX3qtEOfq3N0a36FR/KAJYmK5qUE+v4nPzYcolAMRgxKGIz3Zoww3X4ugbEXCR2sdeq4WfmfCc64PDRIuPFLohY1xHEs2VgkR2FVYBJT1es3pBzVkUQKjLOOl5x3E8xhhLCmTy0CwCjccdoFs3cTfnv7JLCinCjCgPf+xmliQFeN1bQ7WcgjpWkrbeJ2xKGZbW4lCPYeoUMSu9FXYO2fybihipdpbYueGB3h/aC+2Jhl3AY1uOv73/4qIi2Syq5TmcArIdI/TfW9IYXAXlJyswxuyuhe6/hZTJCKi4sV6zj0MRsBVjkmhcUgL/bju8IdvV6TSezwF3y7x0JQWu7s8JiZSkNhs9mPI6kpZeVTEC+ub4xl4w1kadS9KowwsypkRbCSKi4orDwiB7XEzxyt3ZqcjTK7l6tsDvARcSM48XVqmohbxn8O7aBEP4thv0wEbY6JU9S/NLpwl3+yED0zZcp7wGwKC8wMo3N/dcr4GQMeUwEo8NiigJVaJkdA3H8Rye0dguIAzLa2ZYGfc9q3vh6OerzaTQyqLj4dO7pZy49+cplZFxBEWDSHtA6DtMaEzpUBQgdsYh1o78uU07RwuQivMX9mU6v49IC8eT/9FZNrZchwasMVLTI/lfs2PYfBliAn2ssynhB3BcBzOc7l0cBzOc4FFhpXsi36MktB1hVsPbq18jm67nHKtzvFsOUWPEAm9/ugA7kVSvt2zL0hMqS1r7usbqE4TjENsFGF+oyKQQoyuGBFtpl5rlW/Rl9e4tUZ0BDBQbEs1i+c87oUG63QlBbTOM7wcWG/2AxoTBz/F2XHFNq9UyBKNxQE5pcRd/LrOq2y9GSGF6af02z69r9sHLIecFiS337MHjEQHQ1QkCTyGVqjnKsIZzMn6wW2kb3kFLx+mWafT0DKlnqdPgy5cPYHb5pQZ4/0MiM9nSPbVyyyDdvo0tln9gd6L7XzR+gS/pt7jVybILJCTUfz1lymM+XmTP/Yd30/4jXgWehR+KjSyIgDWGwExk0DUkf1nJNyUETFvdKRsZH48wr9tcBbJjk+hHY/aJ0+YFWva07HuIRSCZWa1I1cRaCpLMk/b/ysA31iSBEbT42uGzMuDzM84ahfO7UN8/7Cdaj5cP/XWqx7Kxd90oBp2L3CKX7T635TMTHOtjldhKFm4acn0fINlSH1UC03EswhCaKIt6Np28hm1krQTFVstx0x6SCtc1LUWHn2niywh/qcM7Af+MdAgGk3jhDQ3nFPLFp4Q/LmZFmV8+l3D7UkV7feFySuvovfbjy9d8IAJ+WZ38pIUPphaU0AhEuY00zaH7jCDOY0C8eEz3WhPeD4xC9Tb4oCHxMcQsmXGTaedWhMS0QVbi6LlqwbcQmq61dt3LPCnC53K+0k1g+zXwS8+rI5wrG8IbK+YNiX2sWzreVWaQ06n+UFc80N1Gu6mcnFcKy/NayKEgEYIuS+1TwFc6+wreRviQouOxjrhZ2KstscAPs2taz9U5mHaoP7Fr0ZgPG/WxSW165pUxmyB5pjBzc1FzbbWKJy0Okx1bu/8yoUd+u6L6dm5SQMX+2gwH8f1Kyp8cBp3I38KZlZbltXZ98NyXtSYdmtLRdyQqvfNpWHVelZbx+EPjyvO6A4N07/nbWbTgVO6vgyzwuyvUguXfUqEOtUkWV5r9qnsZMtjBV+H8b1J8Pug5ct2rvdP4qhEa/i1oNOWE4bNjmO7SJ9BUS5dY0GDUqE028p3cPpi6DbWLIC2/Kc8E1zHmfcrrrCYfsvL5bXfPgk5xurORxA/RU8M2VtgRbgiTPys+CMSJp/mEMjPWInPJxKuikCu0uxClmnlg3+Rvk6/n2D/FFosgxhmMZPwFuUT+HSXm1arrQAYHTFilO9BNqUwpGLQDtN/niRWaulNDfEp4vjHh6Lb6kxMvM7ee4TJpTNXtNklfnxn1Cary/z+1acSkYA2hiEYECOzacR8JplsqIjvEFWGUj1QDR+9E2CSq3olmmqs6w7F7gVXBQarxJzS6FN85/zfRlKP7NaI0fzHQ85u6VgXkGV1/zg0LysZdjfBXVpNhW4gxqdvIC427cdGrAWhC14q4noNwIvdBOziDLDsvhCEGf9ouEoDLDovXUaWteW/pGXySdemy1l+1UCzBRZEnIBzmj5F8RbC8TslV4xJ5EH+c8JMFc0NEF531nBzNO6q0hlS5ZJsnd7vgUvRS9R4DpqkMVsT4l8ozB9uvKn1bXQH6SSiiEPnM07vKt5rYSQLp7f4VS9rCS5rZHbZpdZqPL5Xq205v1oFy2RJ2fLJJkN7dCqueEks2OHFTxXTuxxCo2QBeN/NmbixL9xzWG0dj2aUbdhpmTNlsuEcDmnNkEOCK20ZrEA9U+5ZXX+o8PGe8QSgaIs33b39601+X2qnwSWUR/B1u9M7CJAIHq1S7WK7X8I4XeghaxoFLqIk/3VlpCx2fPilx9zjd/WomQIoYBIVVCAH05VhHgH1kKNX6oeP+ht/j7wKpE0GOwcFOPA2Zwi3gojWeqzEKwWKgJlux/SWiao74nXBkSgNdfGxK3FzaZS7MOdnxUsm+rpgap8Yn4owbGFsI5azMhBWSNBIUV3kv9JuVd8ZE851QwKUwtSN8mzyXfek/HhwWGU7x7e2t/iQIWQ15nD3qcmZ3Nk3f1W1iJgFxDQevhla/Va8YCwt4XBr8yKig53Iw4N/Urj9bZX9VtwT9PJZTmUfADMAs5cldkditSJfjVUNSLhq5beZWmaOBCgHA66XaL1FNTXGUYXUxj2reoogC80k+aNeJE9H2k1/mDOe2PixaJiAZ1QhN2v5p7/GMEgoF2clnNotlsKufI3nzPcPlw4wMJYMfDoDQFxWk+RjjHRc80w/nOZ+WSx5GNKc8cahyxL/g6f6D9zqXE4b4iJkVSe/8ZqzfI33WOj8q4zF3yk5cMxcOEWtQGbLkyPBrc6G2TI2pM/HSp5L9CVONoF5YA78KOu+Au1WB7eZemfg+g6zNMl7QXwWQ1+t5VBDUUrZbJrlKOwlxhsYKD/Qpk7fA9h+XUGvE2HxLmotDG1MZeRH4j9wCbfqltL2XKSzGsc+WrMn/kid5cKr282xq+IOTzVaKUUQb+ohFJ2KUsEyXv5oT1kJFlvx0bs4affWxiCP+0HsYWoIfop4tUwyIna+XoMiG9Z58Zoj4Lwnzh0B0FPB5PCzCZijQKGp8kCXFP9SlXBfEECOOzlBgQ+LGZVKV0iiOtPLx2XDWKf944E0npqNMfcLdLA7gOrithVxcBlatWGuEdRgV9GE0j/0M4g2kDHpaUJb1GmktcfMARoBt2bOPF1GtJQuI7S1Svmu25UHE8xMBWqYFCazlHEdpAjIrjpO4w39xR3ugar5iGAkNGrrzOWZ6iSYx4vfg2k44Y39gRL+HNTeFetHmJZcmltp7FEUICdVOKfTwjsQVRE7P+lfV7BuMrOBv0uHhTkTuMSqmeEjhJhgJHzUeh/59XOD52cPkaGCvdf2u1stq1KXw5p6rCfOqLW0yOQrfa09sWNzIwx1Oo87g0niWSCkOErJMGuNzZFSgJa5+wmB9Z3YFDcNqy1eUJ7ddGw/xnKivEdrjkH2xNXWQ0q4S8s8WEdJi46CSGHXKztkUFytV2SRMHOjVDALtbCdrVgvsbSqZHDBINSL7f9b9+JvTJqh1Dz0SyXvZbqErrnsmQgghvwwXcX+K2z4/JJ5gKwg5Za7hTHypY7yUT+vndUwtaMLn4nBxCJsQpeb9pWY5t0Rjon0HdWuCckhSb+yqH/heGbh3JQaUgodDG7D5IsPMabJPrWlnHQLJoOx0BKOC8nOcSJxdZ4wTBdLaMQHngLerBYripAvjXVEjFMoisVmSD1Vkqvj7PcSj6IAqnQagBabbCU14QQBEUrHcMaajSCYp+EHrbD+BIaMOnk6qdIi7w+LWG3+MMLaTe5UmjEQq819fVj0zjz8ZqSrU7xgzbcoLoQ74wvuUQPLWtIOPTt7Va2APc0MqmRvqj2Jm9YcWfJ0pWgTLSJPuNH/VPNK+n0LurtlgBSXqSzmGbkBF4eGkWSEt9Rg4Xzn5zLTHDbClbVk0BJLs10MIT91CDallJdS5IRiyc6nMkvz71RSkQxxF6ORZdlk4JBjrliKgne2a+LTH85L7dwZY4c3qDDBWOKnvFTkbX9OxvjAzHLl9Ocvj4aJ+DlkEpyYMvc2EK9QCv4unNiB3K+G65be7159USvClqhuGIstJbdVCcykzWbJlD/O9+YEuUlA6GTzlhIcIdtKcMulr1Tkqx91BALwU0S1eet3agm746GvEIE0R5ASRDt/pBvBsELwE/1JBpbpCOMcq5tUz+7Qf0tmPDvaGyYpPuUh8KZaXRZiBReDBpmK8HqvTEpIIpzyk4RGRJVKBMYLUAx7dRSOnsk4ks7W4EGNv8wAYEyhH0fSigMl3l0o4w5odVh29S9oIj4tDEq7dUh2WOziuQaR/9YFpp2w/kvO6fEoyGQOxDG2aYMrWyEwQ5X7EIFPCCxLzsSijre6r2L/WjGnDehptCBTZ0RhY4eTrCm24Wub8j83N5zA6jk5IyaY2GtMVx4Qr4J3rFx0X+xvn9eydAaJfhByCwjwDrZpjoRIpMo4NdWB/2WzvcJi/ok3UqOE9jcMwrUfN3sMGgPbChn8+lb9GbR/BlJNfowbUsCcZPNfHHxZQZNUHPsMI4EDYpU8aXC3cUGnni1gUApyv9xCQFNySGBfOKj1ALR1rdgL5JLU2Ht5eWp8Q52n7OE9Dusgq5nlQeEdLcfAmvEheI1k9RCx5p8sLor5/EzHf3fodavispgvjw2MmCEboQnh/6/D5fB9uMwKcW/2Yw1IuhKaUNtgn1QHnewl6d/S2tvdGGkZPIRXNH+3sHxtZW7fjr1RsCwRre+nJB+Wy5wn5lP3hB9PChjujSQM6U4a7FnXEBa/04IF3BNskRyBHc9YhXkcrjubPh+KaFJzUfBV25gb9PriQEK5U8bPya6nnbOJ2rpoFh0x4iK4Jf3Fs0xQRS1qBy5RyKyI5ZvpNiGfIPgQDo3OgDWxKfS5P/Kvm9JTrhiQTZAvW0p/nxGdPUaaZ0o4dJcn1UMvzcOo/zMCmgUuFo8PUccQInUFBgR4e4kTHHzW1cXS4HrILMu8CLd9QygITnDzXYO/w2drS7klRjdooyMwVGkh+RjZfqkkCRxoNKWmV1G4bG/3iczUtL3Iv7k3cbvsQRji/WhcC5y+t8uDvlQn3FP3qTtOGjFi/xZEqkQhTwf2rYthSxnUoZemtqDKfrD5Q0hRbDIp2WYN4LkiTwmcLK4T80wZcuejhWCrjvxXLWilPrZnUPyO6qNMJLw/Xb5m1j4n4Nx//LhNGZj6UsntILV7OSZNXvafuLohLOIUBwYk6CRu18iIhF1TDGuumXUb07uf7D2k4SLAAMwz4/Gq5dtXZgayxOvjv8Ef7ZhE2Wks/+aguNe31ne3geRX5TDP5yn4RFZ1KsPpQUJLrhcDLmf2g2iu+YcZpCX1dqIWTkz18pmJy9PNZXBsthV1G/vNPwcI1gGGYhAzgCFCQqcxnziGb030wEcdoN9KZCh97cS83R2isDVW26PZNJfb2iNpZ3qQB4+Fmd5kTyJhxco09WWtW/M46H32xi0TE7DJnlzLu5BbJj3zQtp7DzcicuPVpkoIFLaLpXBDnpv5uqatFVBWEG3+WQaqhlnOf0D+XnzPCmj7SNFNwBL7p6Rpj4giYGkX1Ge24NG8eD0r6OBNSiKwhtgoHoW7xMqG6tVzjU8SIgLZu3t04Dn+fKbEgEhWKU8dgWkmBih38nEVtykvvfL+D80coYf+MCmdZ8yfptAfh3sgY7iSYlkrm/Ex4/HDg3vtwjS5jtcX/llGPB6vDRXpso6TJ6RTmAe9myI+KxrLk6kn30NjJWEShQcnk4L7Po9LPHj5WtjsPuq0uT4ax/IHTkNlc4nVuOllG+rrltenccBp4K4X/sIymZ5vuAmaK6f8kgkR/fuMV9LE20JLZKJqR/pKGgeeYq/NSs19N6ZNsyU16U6QJYlWZ+8cgYHIPAPwuxtxAQPtx3V4/rIvHKRymaPBYtOcOl5ajJR/j+YGLFydDk+il86v9iXJcEfGajqNAUqjoPlv33ULx1TyIretNHUuHzdG0U2oCn+dZAbZJxYZA/93NfjMl2/t3464yZyS6dKOw2Eqnkl7WIdJySjWHkswLzTHWdskwA1wD2oP1225ejEEf4Uq4JCZO4C4tqLfhoL3WqO9HVHlPR9hTn+vyVBPSm2utaB73PysssqBS4mRcW4/m0TmSYNxmpiOBf+iVmGWTFXGC0tZ+WEL9R9M9UfZ5c4F9NyfoOC7O+dfw9vm5++aBBPZISH9i1Z2NDX/CRQuB1Tcu4gjxhvGj8fM5aXjSJjuiyNmFTKNVnbqBW7SAx2NQUxc//eEJk5+gBP1GK5/A/XMJYEyvsA7kUCjsslF0YNbBYn8tYutMJMBCww9aXd4kZmTQ0wMU32Xev177EVQVbX3C5Sfrzk4UAkaLVBZqXVf5NN0IrLcC7TGH1soH2gWga44NIdjWNaktcWEib+39FHh6YHYkLdDHP/IHyZJTYyWF5+6KZciESqtXZ7Bp3bNoqqnCbZdeWGWLVGtIlGdB462SI9yPvOz9HcCpMQwTFZgjCVirGtRw+dVX/blIVsORIRbZg77HQFhQl2YOXbd8s4byeiiXqcQV1QhuGqEgycpMfpIH7D9d1qqZClgVIMpBagHgt77VnjPfVG43jlxz1vvNVNcWRs4PW0Sg4bVhbhyHjEJGuM/Su/Ld88xyf5Q+n/JgydYFG56Jaf0J7D9MZMhllpXHHE7KK9xoWbxyKkPivvfB4+xbIaBjzZvxAMHqw+m/pi6jp6myeBTcwcWtEEmiiYVUbEIZSU0jhzFp0oRFVeQuLGj26TgYDPEziMIkm4F80BQaUs5lnNkil/Vvc0pMn3ppBD1TXFwOcyaTSIJFlMibeolK9mm3ffXVFML8SHe2MHDnNQfjeVzJ3Rwaotr7A+2n44MGLp1e7gSuaR2cVQ+QoUYAvABkoACy4NLX6O5owT5oZN3gWl7TyNlg8mi14RDmn3YIriuYFA66SBwE1nG4RuCpWm9dpyw7Cd3wdZJ87wCIxd8Ggqf2AAl9F6xs4w6rQ2BmmgB9aRB2nb1a735+Li+W04uZhZbDAtQHcB2dSrwA26Hf+VNWoeF4IJq8PNjlf/3PrL/tbtAM8hSjIOuT7/oT1SvUOj6TcrGa3d5MX+qUaBcBMPKWnrxnrGQLHgLm2P4bcgOYwXZPG8xEns6rSbWQA2uAi42sSseBtcNZ0nE1lY5ZDFhnQOordx5N/wbyhqcE1begyDGadHBsIWLa7QFTlokidkGYaqCg9WyCMk0KJl9n1H1LS4Gww3HEE4tliLbR9H7tRr0iX2qjQ8Xp0D3ahxsxaZQFx8Wjapi27H8jb6gUpdZkhuFtvtxGm6BRNBfgFpLwiuwIQge+xY6vKlZSCV5gA/PbnVAbZXGQVgbPCcRA9BXY14mmaaEKGrfXnqOmH9svggduhe0u76r02W6rGfljXGWYBRBcDVSdJP5Pd0VgppRYrN/icC4p8uTBXvEy4m9QHmH/+HFoHldeWthRN7hvexn9SAVA8pGdTRlr8Num5r0jUUAK+ViWOkNQYLnbmJUlzgugzzKMIggWFNHIh2RvcEjHLNVKaZAPwC1MLG70em+RJVRlaNibxUE1L3NtFg3mkB9b+djao9xYDltUoRSXEJuQ9HoqT+WNOGZeOGiNp/ZJ7m96ZKUQrdiYQyiDYMRC/Sjlsr8tWt3LNeNqYlBUGTeE9UAgpgQJa5n2xdpWpg2Rm8tLtJCBxCiAta3bcvSar1/gxrBFm7I7sqSnF1UvIoSr1qJOubCHtU695k5Mcyjb9771iJ2aeQMN/L0UBo0Xk2V2COtNQXZ/s+Dw1oFBb8Ag01F7Vx7z+Jx4Sg7tbBGl9j+uVqMykQxuhDN0jTP3H5gA5Kh4i13tFcQNdu1yVV1bNyA/MAXJ+61F9bn4Uld07hLbmQr0CgcrlDSLSRYf/n3sHEWSV90Qm+hpKTlxHNt5/QmKcwsdHxDKVX/P/b/sjH8v3hmwWSn7HaXBD5YQJ0854kxiBebs5bI6WwQUnO70l0vJmgvkylxPaEv5RuK6PUctWQK28AdM3RzKv6IXxK9UUdmQKpNeRYLDFcNyGAqHol7WoWEm85UVfdxXcaunBD/miEuPJ6ygFqbc9X0/fhHahIs+BOUstMhUJr0eymYaef1EOcwQYRiBeoHf9XdC3M942H1ehfETe3hDnf4grjlxsSgHmWk3gfHK9pm0A2WCCCY6G1Zz11WH/lkAFp+PiIwQBveyfbrWCltRqi13Dfy1MYEz8fRmC0NnyncaF+ghW2aQx0kcCLABT29UhAUXtGL5PaXVJShK1nx55ZMYnAQBfIAEUkh8a4X31g9705PdU9txmnp6dAlcD/e6APwe4vF0b90dWeHsgL+6TIJGWMTpeGzSYiypot9ObKlNAhFSh6ZcdwoJ7Zd0+BTIzJM6eYhY2uT1zunNik7yxyWLKzhkFq5fjqhh2/G/jT65FE8icSHcRIEU0JZi0RbYfFd6fhoP+Yqoov/qKp/kE3Tv8SZ5P0x2LUSLGjDg8Q6AVLE1Z/cNEs7YuSvT5ETvNS3hz2JQIDHIb+wHhKKZ3zATCbZvPjG6dfVwyseLuOlEI3r1s3/vq4TWGOkpUdqMM5nBCnq1xFs3g4pb4R0ykqt5j6rYVmmegqVpxDQrngIeeMvWnenYh9WZJuQ6o24Bd7wWV4Hfs+gfeiGeqRZZ0hBPlTe/XlwjNoX29FajEEw8b4IWgCsBzzflq/J6gc/ez9+6EYIGhpJ3H/SBP295LPG7i1SI1yNFvz3KqwgrfbvXdzD1/y6Prm6y4O0THCno1Ic73r1dK38IWMy/pxO9T9ybvYDIRFAwNWvHKsXa0NMSu2Es8sm87jg4vyvneXC2L8FmwojN4M3+xlcFxceNyPTDt8eex3npxw3nwuPeQqbLYyKn+zoR5nObppYV7kZIwMa0NIDgvgoZTJI4F+iQmDB6I/HUBSUYIZ7o5M89Voe55CUd9/J5SMRXP4oxfK9i0b2KCZi1YtTerREEJxAaPvC1FQ4cDJI6rX/P3AtU7w9O+XyTIQWLs1AVVd+/qDLktxRgJBZ4DhBAlApD+B85U4iqYW+kM4+XS+Yvuqcv55mtEhQY8AYd9IomO62jLrnGXf4dKGBvuJuyMKXYqzPUzWFLe5uIRyu/xcX+Kllj+lQ6CSWMODsOTEw65CnGpZ67egRUc2ot7ZIDvjvWJMqhCv2Jg8ulkh5GHli6Nf0EQa8Wy7F8hVlszgnfuLForqft6ruNgcyv9LQIom1/9dfGSuyM/wlIlvuZfMUm9WSQD7wNEzwUNz5Q0BPZUGuylWf8yFF3f7RPY6l08gmy6eQYsGnywWPOpq381ZcZZNRP41qkGCXFUXP5csb+tUIUU0ow1lXLXVh7pWQVUfcB3bw42nWt7BfbL5jG9r3kHNtD4PwswrxE1VHXqlCIRn9gyql3gOb1VXk+s062HaYVVeVHLJxY8j5aGdndN2RROM+dXXieM1GFzxaqPxQlD6pYeZWTu4Dk/czhkmtxBDSEKy9l7fD73Pjd9rVc+sRCyw2Z7sic2mHCHjeogv3qXO0OG21O/WEKTNxIujM6sYvMQYhreW4SqhqzyOWXiQaVzkMgRbNMpTUOmFZbrgRZqBSwci5Qvt2E8W0lQBahWaYLK7SQtTiKfRplwpGNjqDyVk5iXB4B4cLUmn02R3RhtHAIzJlTxLFDoCyUfCyeOVVL6v6v4ieSppPcSnG4U2yARfZPuAwNGOlA/MxoBP/XQ1uh4ilYO9Ai2DgoEzvdcVVo/ykk/kYxhqYZbyuXvH1qbUJ/DgdFOIG6ISLpZUve6QJAihlgVeIU1xaQr5CwjzsjTqSAb5ZpVq8Zq7yFRKsx75Nfb/uePWHmJmyBT5fLMWfVSNE30ZKN0hAiuEOpaUL57fbjV92t2nibHCoLGuxt3Be2b44EM6nfGxh5t4mTY/AORTai8lu6g8IIAsru7XITnyp+gLsuEm0WIHi50nsWx1M8jyvAEy0vVag63TGyoJuQ9IxTRyWcZhHULa8i9tr02bO5DoQErpv2rGv70YErqyZVA7AwupR5c65qJflkz6ZVaIXzH3LfWVfOsOlUtX4XUkL0YYNIrDdagZUX+tEhp3PlDil23OjNSNwjNwsJeTE7XdeGuXXSskT6sHy1PyUN3Q1DpBczQLQI3Krpv0m4blRNCluV00ilrKBwv536EAYhv1ey0IQu5a9Q3QpbFs3rWQdX/pmJC06kTMJRZvsqSdeBfgpedGJIEjOms2xM2qjjDdMx7rv3Luy3x+nOznM0ueNEw30d1zJdTmEEPJhm4xrEVpz7jwBsQ2k2jz2Qy2aZfiOnpP7ef2HORqQSjHbRHI8DBdgkJ6WoOGPFc7nrXt/PHdW+NGKa9lXRXV4h9+RKOGYpPUYcchfkRb8poO/AIX/pyK0fFaqp6xvpWKdW2YzUwKPb+1PLndVkFjenjaZynTj7O7W7+WH3xtkcQ/a8Aq6d9RnKOtuFKFkJuqplnGeK4kdB0FdBC31ipNZ1iPiKsRgBHbvoPpyJvYN1a8D1H5A6Wc8toy4ggAkrjXBaDBLoP6CRKl2TqolVwi749SOaUOdux1mhF1PEgmXv+8XJIMrXa5KFOCPv7uWsDqrhk11TRZfiRaV0U+pFIiSm7T3MaEPW4H06z/aj+EH5j8rTBXJL4UYk0cEwYNnYm2ekdf/93VyZu2ro5mAHMV/GHiQAWpjvR+l9zOg5mthx+Yg6PL5twd1uv3UHTKrA/5LVUVo8w/9hypkV8LUgaIF5+4inXW4E7j/8MHQFYBlgA91fLz75EjbBsNXzO8dNtO3gQzLP/y3MO272GA7ueCGA3d7ZrApC5ytUyVVxqCGAan7f517SoLfRC2/yddTTmI/uzqu8kl+DFvR0Ts2okhG2uI+YdCWEIxvTeHMxVOJUSvlxP2Q1Fi8JfI1YCqAyz8SkqQSEnODQDv7W5WMhl7CW2L1oZEEtfy4NAJ/rZ8URVq7gsMPVhVlLJvy/h3AwRCQd2Gee6Czz0QdRdOmMF2Ugd/UrwxXTURPYxioJ9riUb/ATDVcHi66T/vid9R80nOpcePxCzVSggoFFtb3P7r4jOJs9giJlMXenNNjdmUD3kt0LoyIcNRXGFz9m3YdKqFBi1BHtb5MCvFGqFhcMb1I41LQagaUYIqVIEF20HZTC5+AigGm8EIXOHl7gEwDTXVvMIHvSZjLaEUuAidRi4OSERG9Kv6fz4HJ/VRknN2MMPVSjXdjhGsXyTd/1+H42VuQwDB4oAoTsWyKIF1jFLPDjObmhovgSPiMDa5ZPGTaa751elY2Di7CjHjWEWteMcy9O1Fz5byvmqNTxihGxxZiqokklNGqYmXeKBdt4oCZh/Xid/7HewtEkrrsgExpn7HkXb6tOauVTVbXrdJNNCmWfgBStXTerWqoLKFRyo08dAtpUMaXuDS1pgfD/Ktbn9khxeNlSk+EwEGXHTK2nnfWEB0FP/gZXwUhG58auyN650q8sEccKuAcEcmp2HuJxXzQHBakaijjjsRlJS7Zrly9NJY8lJs2cxGPDtKAPlWAFFI1M3xP7MZYI6aq/M6o+TQxSP7cR91aRBq/6ecRwLdTqq96JkbaOUXxuMvbr0HOeUXE6DiZoXP3UXWa37x5+EEiMSUW3J/O8AFcI53k9e3ThKLcb5nNObZYM325fR8qlWBXtF0+7WxnvAN9UEQOIRkJHJT76+apLgpcnDM4CM6/ijNp9HEu79d86TGAYIRb1bjV8H2Pxfue/h9kYgiUyJZHz9rm0x2FmV41JtXqO+WfUK1rSDgixTulzZZs44RqLuU3cLdpqbn3PU+hiqPlT49wecMPA3FWUSpo1S7PnrMrXoo1lnTuMhBRrR/O7SI7ClrslBjVUlftH4SWY+o1/fmMpGDlQGGsUevRkqb4AOgdsKfTVa8aSNHyHgn59rh6cbM8CJVnEWvWycp9r+2Ch7zSM516rjkJVy9cozyEbTQXdLlvh82OnV2ffU+YG9Wxba19gIoxMt7xwC9bXTLxO0BUskNC8e8DjgivDLxrTg05MWbCiZQ7KhOu+BAS9rG7uNxLqDEp2QuoY9HLMJxkKJmTHfXFQ9PpgHufftD5DyLiMwVD0HMMaAHaNNB9sWQS8hI32Pcr650IY7vY+0/187dmy03ogSkHg1MCrk02a55w1MCDFZcfcl4V1PeAVokqQslTd3CgvgaXRVL1x0HCGohbEOlqW4u0B6vFHMNgkkkqTpI9Z401BFhf2y9qwUJI3VzUcVMa7ZjFXE0T7gUUQmvNtuhDu+35zJJi66rPUnGoVEfFk5g84apdl5Tlq7L4vNDExbvh7+Dr/qk5b4MhqSEJ3S0W3D+J5jR7G6eQzDCL2T4z/dSDu/bmit0/jsHhjTI7/tlnHB0YOIE8pg05XSpS+KnS4C5H2UMoozi51m7A3jR0yTjMpU0JNgDb8dK6PeTAbJj+msuMDPrd+c9Gxm7AORdwvDNHAyccjloQK8EYSymqPLX/1ZtOUu0pmBMRRwJ00OAkoT2M2XhBGIzDfIiUWFIrCCwSrXlRwzPy0yw4ESCDK35lW6+Z+6/EaLWUyd/BpTUtmBUHSnVQLTY6U92drWoFfa+L5MlwqY8PCGTv0VxzE0LptBY3vgxGQRA9Sev39WnbxK+ca4IrCIbMzQCX56V+/sryuTKRehlPSQ6eKq16i0RZGkg+LZB2YExJbg9GFmXshpDgOaXrwnpi+NQ2bNZrfKBZ+inGgoseHhHXr6023mtf2KsxXGHbrYa6javXRRElxXYFTCupgNuOqJels3YOqC5PB5k+oSn3/jgJbYIOjcg6fgL7vtF5dRS98xwcVCIuIqvPaTT24B1Rc1pHM6JlhAXREvRfr88H5Kk9D4oSu4R/uCfNqwDWXovmYvw80m5n2kSAcoIW4WUoK3QDL0JilO+uNILvAN4G9DgkNNlAhRGysBCaqd2x68c4aPvwAaf2IM1L8LWtKbpw5czczn8bfReG3sYQ4Jl2NfbC45tC+25LYxTiL5ljgiOUW8FLIPU0wqVbLxoCteOC9cTyp073HcumcypLslAU+O4Oy/3K1T9WwUY6XZdrEU5p2/51N9g5f+GjJgETK8xedPrWLAHzH5uEBLXRNmOjDqnP8jFpQKVldQ9NhC8+sAkHJJ0bd0UwV+Jl9Px7pAe4LzhhW/cCBLxb+n/UAVuGivMcdpJP+OmR3TxhBXKAazZyNg8jvGRYP8GqmSTqRf/lRjemHKAq16ekd9GGxUzBlCe5T+ZhRc4+6291LbrjOHv4mad7jvVvblkR5hPumH0HQUmhYcG0cDO+9FTQIahKAajaSN6MVs4+HMFWoMxICYxz8yUMO46v1rXKT/rHgurQgyiLbTpGKATP+KT4a/iCQaFibd1Ag7WTx8oQ/tFzmpR6nKn52PYKSGxC2l9V/yI1VVsuv0r1IyDKc0/t0RbS1HO8zNpAVsygI02wrrc22UVH0BI3Ar6RgNWco0CgU9Q38rxgSRdu0mfq0xXoQot5L4BKfUov1fU0y4n+/W7ZbPGGGYf6qz0HWb1a+UCa0zG3j2fV6pH0mxr3YM/hX8LqOSawvxM3Qj6zZao2PzpCxKREJT04lY8RoKkiz0rS4euswCsgAVzaCOTJGKFtUmlUtWuLZGbG7IZZlcnUoHVaXMPlpJMrdHLZM6U8myj1ww+X/4XoNkLgI31ZSdyfpuCreh/R1NOCoX8H+TkLwKY9OVqfjBRl7Wu89z+HguX+WP18wvJibxVexTlDzAoTYLEHq3D0RHYrx7MbzyO4ZLgdLsjt7nkdi9iIDkF5D8dZpbV0McpFHzo7YIWNIZfw5qZPU9K1tQuzXcLUpJv/QTS9wfCFggJL3jpXAHAH16w+bsTbVwXd6jTDfn5OhM4gizVxSoHai7jhTranP76Rr1EMcQ+AEtIFkdYoXkR0PR5SJI+JhvWFcdCtiAMErJxKgv6005CSFNTP/FpvQqv2W+tzr8ulZZ2LjP96ZCGNV2C0cF6NW8mJdgNzxgyxOYrhLQzpqG9NvmUhqttYptFDdq1KrXuY/aBJPWb/dhnbGjCU+PgLG2i0et4RpKuarl4lQbORbsSv5nqio59RjsIhJiWE04spH3HuJ8dBcKzOj4IhI78D3jDMZBWFtc8Xw1VM3b4iVROsIz8QkXuSoeNKdAC5/66A+go7/SrACRCJJ49ag4Wknzkz5dxzFSSrGUDm+oaeg+GarzpdsIEk+1ozGuIPLTNtys99z65cxAayz2X76kGXqqKCb+372Nc62XXii7trlT2oz6WBpOZOvvZeL1O5/EaZufAJYASLXLAxA/83pcMHekaDQSdYNzO3SRQJU7dcenn7SwJk2xs+tPr7ovO0ycEomEhytW/X/WGHCmP4PGt8CGvS/KsES1TLgBHVuVJFyLcL0pDlVx8uG6KNPAD5j1Q+ZsUjkm8stfffwHpmI7WuWbuLR1hM+xjBly1uHN7pBqm3pC7xH8xNCr5as9kZes1Dw5Gugb+6yi+Hk1XEiCnqTvMfnFDy4x/AtUPq8JdEnsY5g57Jkkso0RbfYdcxFCgxSCSA+aR/k7krXq/tZY94GNBQ03Hqoi/d/EOoLahiMK1TGEHjUl8TTYB/DSprJgebYRKucGwLye31FcmAcdtPFsBEmN7WjZDOwf2EabQgud4DYEFu/3yyh/Hl2hKTIQlcSIVF0TIhnz0OlagwahQ37mXOqMfv6zVFA404MrzZUreOe+0o4igkfHn9Z5X7iS1SZSRC1NSRce3gg/+cpkRl6HR5ks4peqlM1USavDwmO5GxIrNqBoU+NweS7mY5i3F1HUBcmF60/nXCq+6WU6UXFwMC33r81M1LvoPdd1u9zjiYumwEHjPTMNe+18lv/chaHAPajPcOo/jloOdDcGvawHGAWFhd574bDl75H/pTQYCSOVQkYVhClQHLypbq05rPshaWxi/duddlxw4HRfVDVc3peV9dcvYWlG8VBgfad2U2vRneieOBjmuz3LpbBBPy96UBlE6b3r+DpxftHLGGK5Lo/j/IA850wM4+0B39xpmk9BaRbSu34aGfOZd7UWs0m5yRyj/R/RIwwZ+HozQNiBf+q7x/Wx5tQZmz66xDfx8eSrYmKFc3CNdLoid94axwo8dFi+BmHJ/6WuIlHhCJPUjDT6GsimiPXiipra3T9+ZoSaNh3qox+zuy4LR28gS63XlPsKBlD18xpoCFyvt9U110u5oi+9pNw5JPKI0EIEd9B7Q4cROq5e4I8xkHx2nwHolWb7vFod6pIFTHo//OiegCn1hsvgqgeySk28Pa1/88guiMBqS+L+xcjYNZSdLAwZTaW2LAD/iIp2d02HH4ghmT7LrPQi9UajAC9tFbTOx6GBbHD4nvR950tt3jv+p755xk8Z7cLOeDAeCduoozqGhKncALha1v6XKQivAPzC9gNP59wRy3C5pJ7+RzVG1QwswK+ZHcVQwcezosjRAW+2dIkUx/WEhtXWP64sn4cziM0kzuWto3kluViTABIIbMpCfZB0VseCmwdUpOa0Mfx5aCrKyEpEt4+Rt5COcwccxKfw0r7OQpqV7IJslAmsWUAZSCL5L7JoLQn/OZJydUlejwt+T14xIpOuq65UsFPxhiwsxjwB2ToUtyN5B6rZv0qYnxhEcHDUEGEr+DM++o1vie950WxBeMBfON71lt6bDCW5y8rEi0EgTWhAlRaZJ0gxVMjihjqq3208ijPL0Z8uv8jRVH0bor+aWhHXOi+7wcsZOipzrhhrhiACUz9lrALX9TyrVla+iwCQjo/QP0+SRyZ7iyt6YGkwDwdQrtKcSp1VR8YkacFGG+puslpVr8pZqNEYDzG+ypa5FaHUnnKHD8pqCnhSCtamUdbAT1KVUOmLTHs+4K8RiJceLjggWdMmccDo59ZZg/hySOavnCy6cGed4zcRQqEXcMBLa94X+yGYrQ8qSI6T5mUfPUkr3dgrfkewJM9+0C2BZH9CQEs4HE9+Com2vM/uZOYAPOC7wT00AA4yozaFoqmMGFK6TL1p8q/+W4EiMqNH/+yWfQ9PY0oHJ3v+aWhqP8OHeBNwNk9P/zfPTz555yiP0xnvisgZlVCo9E+sQwlXkfOHptp/E2sCpzX2Q0kLq5MQumQF0n42J/zqAhK2RmnuO2q4wGeNz4nfdKMNTnHmUMtYZ2Sb+thY96O/xOVpaJs4Blh2EaIUzmFtD8B/1Iei7VGdVbzGFNwxDajncu7qVHxfAun/7B84IYYnnQ8dS8J8j0SnfbwhXQ/LAStzTwy8zUyg4dZp9fgknHkKwTbjYB4iWQAGilSvKwLfR213AJKw88A5wE4J6xZ5FtoWoJacFFTWZJ+Kdn+WmuoxBi1aWbe3BUfXMVIVBFBMPLFO2Ex2y0thdtIf/bCtCZr8HKKGH72j7l6KrbvEhb1N8p6SwtxpKTZ9pEsMDkUsVSrx6n9Y7KrUlOrdPLcrLmKGO7xOADSgCjfIp81eLdNnS3ug0PysZGOh/SbsHH0OnN1zX4OjtrEae13HSLtIkpksVd5/jN/i6qMzimjSHy1Rc93o6XwsjA5eojCye7wvmY7oZZCx/HRk9fGr5TUxyrlqcD9cJxkGpJm0xg4FEQT11ZpQdnmCQbvhG1zsPkjYje4T4t1gr1sJhkOk8I3KKMtEp/f/Ztj1PTngqo5pmN8U7ALn+5YK+/Ai/SNRMOieVhIhWXEygMx/ucc3I7fb2WlzviAWqcgqLWy1QwlfSbxVzs6pjOSFxSg7t9BP6CAUdz/06RiLaNkZLtee+vCnvyFbBfW9tuCX5SQTBKw1KS7+NfFuZr34VMT+R/r1JhWnHZcJQ4SQZxB38C3cWYfOzt+iADubY/lpZWI6jsnKoR2IR1HvMiHtPmQGJSo756czZuA4QhvMbWVW8aj2/W++S9eqUsHFCDd9va3+0g1WCkiMFyCW6F71AGKXnXzarDB8A1DS66xTB3QVkqZvZ8z32QlREKFWhGjbNzTu0kImxNrqHrIaS9d0A58v2votgU05u4v7rYvEHTu5ZfjQjsNbF/2iz5sp7csPLxxEYfVPHqahin1wfbXIVdl6XDgW+Aqxx4HKXvPW5RBkHe36QRTda60rcMZ4AkNyp9uIz0Bx9P7cH1y0a66AEHYSpuik9g/fDTorYRfZQcmWPF9D5Z83mSRuAYiqLN4ZHa/qi8Qb748FQCft+DNS7scn8KXJe8Ad86a4yn+MmFTMbQ/PKj9EX/aGdbqgweuAUJMrJ0w1DsC0/LbXiHYuEF20sisfkOn77ucHsIOZv1HuDiNFRfHTLiP+g861RJYGvZVHBvzV7EFBtA9/WCFjetYYHDW7C+vQZ5FlETAnyFnxMJZgPfKD2rejEVS2eFvipUtxdRc/oGLzjcwoA0gFZeRG3btRNly6jMhNCIH9pTIIzZnb+lGth0oITTpz80VJWRo+9OshJ92DfcXXb8enHBhokPDzN3a1sRRRww8LGLfU7FQcBeODlLiRkyx5QCMxRoyHY843vuQ3ZlabL/wquJYZn3FPXT7oiUNleCiSYcEDk2OCPcLftuQms1kYyyfcf+tWwv+gaovWdGEjtUd0EIrM+40o3FEHuN6o0Pnh7BlnkZJt+v0xg19vLJQVLXMDw8o3nWCld7Y9RRBgiFGYpZfQOIHgR3rM74ZmkixdBloPsmyzspbOsIODOMrZ451UNajnKcIOdMkBfjObFIctUJpAls+FBO4/Ip7JnU07xo4Q7fQXD7j7V3xXpJLViUoiziGs+/N5ma2Nk7ACLavADBryeZZk92bm8918//PtcPIR+9Tjr++HGTS8I+0dpHVQ4WE3NpWcmOIze9JIn+ksQ4oMWqsQ/iEXPtssuJr9hEDel58Lhaf9BEFSvV4mvE6ZYlvYMx6d/45ruv4EYOBpKT9bw0MyvpnY/pJJmPzOOW5uT98mbOpWNph4TarDvhj825VFwblDogvu9ag5ha7DroypPXSarERvV2HGybnZGkb4sydZ3VX38+HuMBLxu5jqbc/MCqEgHVkEhy+301eGkIOWiE6zGBDcMpkqOFtUpPE41nzcTXtNlbqEToKVlmHseso9txvKIAeYWbVxtBTyMtEtrHz83SYIQpzPd6vUTg0+dDnR5vYapgcvEPtcmJ8PjLN/b2EZsl0xQ8167My5Z5mvbANDgY8vcN+9reJMCwtvDdKlVT2Qcq0UQzh8lQRjZqWbdlSLL7T83DVYD7KDqmc+Qh3tTBOt48rbCxueC0GX5QrqADMTEEUUECnYAiFGBP2G43wQAifyKuDkVvyo/T6myLnp2y874ivmnfv9UCJDzgMA33owtOtI9B1p3uYL42xcJYPxpv2K4D1CJWsEWPous8u6xJz5+lKhCHiQVHq/YPQkHbPbLvtAQPchqoj+CvWjP+aekuMpQH5aCUcB/5aopzSaH50WmQP/Q4i4LQy+BM7nEDYcVnq8Rsd6olghCovcT2VTrTptQj53DK59o2Q4QCaSVjNGKKKzr1fLF0T9OTtgYJLjVdKmVtP65+Dg/XQtR33As98vcDApq7tN7hqIYIY3wvR9dFi+fwAzKqDZIUYsqxroHReld0iZFVXSsTtqVLXyhkYxD2txvlUS/1Ppjr74Qfm41IgOObff4KxfzqK+3VDDOOrX+QOU/2J9KLuP/mKh4+AdBMGgif+Sn6hU8jDouqJi2Heg0dqR2bJIWrZLmM9Pevbjp5VUauwYZ/4N6hrsdGnEKoZKQh2K4Qbtz9TV7F1Pem6eOQwQplzyVboZ9n+5Hi0/V66ObwbupNnUe2hSBgz1yzDSwb8+D/z5WaI4VaSMNo9h+l8NSeuI7H58NThhE4dm/M0MLnZ+WLQ5ra6oPU7ORJr6ATwS8Cv+s+nall0PeCnkA6Mqe8vA7vHYRN1hx1fke7Kp4Tp3FRDGpPb0WkpmsRpbidd+oI68TYnkFsZ5guLx5yw0mM3GZvGj2sBawDU/KtEc+cmMiuV70Z5gR4zeqpXR2Moy6AThVXXilg0kUjyL/2ygxsZVcio9kUQ5U+jyr7qc38PU+INChGdWvN+x05ad4QfwrnYFlJ+K4rQZnKvzuU8XivET2Wr4uZ6qwZCuxEn5ARPQlhoHn8QsmQzIkXMuJIp1JfiUtRKluxeY9KfgVbXCEqx+I2Gx07k1l/S6rAuHuGlva7/9TOMrvU+1lP86zqcLzshpXc4T8T56wxBK6KdBkUbZrCFrg3rwqlJfPB1f0Em883Of+3a4yj7ade6zf4C8tD8mVEse5bjKdvPQyl/l0bvgwcyiT0519u5ZS9mGLTFwKPt9PZR2UqCp5x8f0sPBgGWUjI3fKNStgyeBoeS5/e2OqhcdW00pPgfv8rCr8JPE70VH6VCbt/gqBh9kgaAoComLG0L03gkVheNDr04N0fYMRL59K6Br/RlPuKcMLaJPU7fOxJAubn4ciojbB6Cfzn4LUUx9YlY07+e+/rNch+ACkduAsoGNR3GmS7oVMumGB0YuyqZOpN+P4/TvxxBf3w9ZYmysF6Xn9sCSN/6kC81YwVqMf7K3qV+a/mF+AjNbfg6D6B+kh9yxDFeBBCVm6lIc5suhtKosihZMp52iRnOhr4VpkoqBTsL1US4SqB61Zg5I9FEroqtFkhtHtYtxtkKkl2iaz5y7J31xfBLAwrzjyDy3oPLj5R8YNcfPAvWAJMOzOB3/zhpeVq/ujVb+7Cp4xS7Ai2NWkYxA9vJNqviliKPV7D9KFMXVPvQDrnrveXipiQXAHxUaSpi/9nMki7yGI1eyqpr9H/eGTEe0xFNKnd7K+5i2vqUfMZmmHPN22W4VpzOcR+9Ta39zTVzo2w1teGVV0kwCRx0mihS83p2eZDg/dQo/kuoX0S47z0kcxq5JiShjkRbx81kVTeO5Ahjw5T2x9fEA3/JHHoaSlqAx8hExdXEJDofKDedNe7iilmFjFcB96qt8ETI/QaoHGTI6Fay7+Bx544buxoTWhc5sTf1FPrJJo7DfR+NUISzy95ynTseNUVNhDh/h2kj813MV5QEcEoiLK3xpXE7NWgUCnN67wV4DS08i68bY09ApisKAUwc0Q4sfmj/aC9zi1WPKxRd6IYc9YYYf3KJtRIS3+kkUcc2q6iYzspT+DyOnhxs8BekPgKl5z+cRjy/SP07zkPskbwO1b1aBM1YTzvNz4be3iaACOoVOspKUTwnrlRAf8AHRFUhsF7WyAABXxWCE60ZWgAAAA";
 const FORMATIONS = {
     "4-4-2": {
         need: { GK: 1, DF: 4, MF: 4, FW: 2 },
@@ -1694,6 +1699,14 @@ function timeAgo(ts) {
         return `${days}d ago`;
     return new Date(ts).toLocaleDateString();
 }
+function isBreakoutCandidate(p) {
+    return p.age <= 23 && ((p.potential ?? p.overall) - p.overall) >= 8;
+}
+function BreakoutBadge({ player }) {
+    if (!isBreakoutCandidate(player))
+        return null;
+    return React.createElement("span", { className: "text-[9px] font-bold ml-1", style: { color: C.green }, title: "High potential for their age" }, "\u2191 ONE TO WATCH");
+}
 function formatMoney(n) {
     const sign = n < 0 ? "-" : "";
     const v = Math.abs(Math.round(n));
@@ -1720,6 +1733,18 @@ function TabButton({ active, onClick, icon, label }) {
         React.createElement(Ico, { e: icon, size: 19 }),
         React.createElement("span", { className: "text-[9px] font-bold tracking-wide" }, label.toUpperCase())));
 }
+function clubColor(clubId) {
+    let hash = 0;
+    for (let i = 0; i < clubId.length; i++)
+        hash = (hash * 31 + clubId.charCodeAt(i)) >>> 0;
+    return `hsl(${hash % 360}, 55%, 40%)`;
+}
+function ClubCrest({ club, size = 20 }) {
+    if (!club)
+        return null;
+    const initials = club.name.split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
+    return (React.createElement("span", { className: "rounded-full inline-flex items-center justify-center flex-shrink-0 font-black", style: { width: size, height: size, backgroundColor: clubColor(club.id), color: "#FFFFFF", fontSize: Math.round(size * 0.4) } }, initials));
+}
 function Pill({ active, onClick, children }) {
     return (React.createElement("button", { onClick: onClick, className: "px-3 py-1.5 rounded-full text-[11px] font-bold border transition-colors", style: active ? { backgroundColor: C.green, borderColor: C.green, color: "#FFFFFF" } : { borderColor: C.border, color: C.sub, backgroundColor: C.card } }, children));
 }
@@ -1731,8 +1756,52 @@ function StatBar({ label, value }) {
         React.createElement("div", { className: "h-1.5 rounded-full overflow-hidden", style: { backgroundColor: C.cardAlt } },
             React.createElement("div", { className: "h-full", style: { width: `${value}%`, background: `linear-gradient(90deg, ${C.green}, ${C.amber})` } }))));
 }
-function LeagueTableView({ rows, divIndex }) {
+function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosition, homeName, awayName }) {
+    const homeSlots = (FORMATIONS[homeFormation] || FORMATIONS["4-4-2"]).slots;
+    const awaySlots = (FORMATIONS[awayFormation] || FORMATIONS["4-4-2"]).slots;
+    const homeDots = homeSlots.map((slot, i) => ({ player: homeXI[i], x: (slot.y / 100) * 46 + 2, y: slot.x }));
+    const awayDots = awaySlots.map((slot, i) => ({ player: awayXI[i], x: 98 - ((slot.y / 100) * 46 + 2), y: slot.x }));
+    const ballLeft = 50 + (ballPosition ?? 0) / 2;
+    return (React.createElement("div", { className: "rounded-lg overflow-hidden border", style: { backgroundColor: "#2E7D4F", borderColor: C.border } },
+        React.createElement("div", { className: "relative", style: { height: 220 } },
+            React.createElement("div", { className: "absolute inset-y-0 left-0", style: { width: "50%", borderRight: "2px solid rgba(255,255,255,0.35)" } }),
+            React.createElement("div", { style: { position: "absolute", top: "50%", left: "50%", width: 46, height: 46, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.35)", transform: "translate(-50%,-50%)" } }),
+            React.createElement("div", { className: "absolute", style: { left: 3, top: "30%", width: 10, height: "40%", border: "2px solid rgba(255,255,255,0.35)", borderLeft: "none" } }),
+            React.createElement("div", { className: "absolute", style: { right: 3, top: "30%", width: 10, height: "40%", border: "2px solid rgba(255,255,255,0.35)", borderRight: "none" } }),
+            homeDots.map((d, i) => d.player && (React.createElement("div", { key: `h-${i}`, className: "absolute flex flex-col items-center", style: { left: `${d.x}%`, top: `${100 - d.y}%`, transform: "translate(-50%,-50%)" } },
+                React.createElement("div", { className: "rounded-full flex items-center justify-center text-[8px] font-black", style: { width: 16, height: 16, backgroundColor: C.green, border: "1.5px solid #FFFFFF", color: "#FFFFFF" } }, d.player.jerseyNumber ?? ""),
+                React.createElement("div", { className: "text-[7px] font-bold text-white mt-0.5 whitespace-nowrap", style: { textShadow: "0 0 2px rgba(0,0,0,0.8)" } }, d.player.name.split(" ").slice(-1)[0])))),
+            awayDots.map((d, i) => d.player && (React.createElement("div", { key: `a-${i}`, className: "absolute flex flex-col items-center", style: { left: `${d.x}%`, top: `${100 - d.y}%`, transform: "translate(-50%,-50%)" } },
+                React.createElement("div", { className: "rounded-full flex items-center justify-center text-[8px] font-black", style: { width: 16, height: 16, backgroundColor: C.amber, border: "1.5px solid #FFFFFF", color: "#FFFFFF" } }, d.player.jerseyNumber ?? ""),
+                React.createElement("div", { className: "text-[7px] font-bold text-white mt-0.5 whitespace-nowrap", style: { textShadow: "0 0 2px rgba(0,0,0,0.8)" } }, d.player.name.split(" ").slice(-1)[0])))),
+            React.createElement("div", { style: { position: "absolute", top: "50%", left: `${ballLeft}%`, transform: "translate(-50%, -50%)", transition: "left 1.2s linear", fontSize: 18, zIndex: 10 } }, "\u26BD")),
+        React.createElement("div", { className: "flex items-center justify-between px-3 py-1.5 text-[9px] font-bold", style: { backgroundColor: "rgba(0,0,0,0.2)", color: "#FFFFFF" } },
+            React.createElement("span", null,
+                React.createElement("span", { className: "inline-block rounded-full mr-1", style: { width: 8, height: 8, backgroundColor: C.green } }),
+                homeName),
+            React.createElement("span", null,
+                React.createElement("span", { className: "inline-block rounded-full mr-1", style: { width: 8, height: 8, backgroundColor: C.amber } }),
+                awayName))));
+}
+function recentForm(clubId, matchHistory, count = 5) {
+    if (!matchHistory)
+        return [];
+    const games = matchHistory.filter((h) => !h.isCup && !h.isPlayoff && (h.homeId === clubId || h.awayId === clubId));
+    return games.slice(0, count).reverse().map((h) => {
+        const isHome = h.homeId === clubId;
+        const gf = isHome ? h.homeGoals : h.awayGoals, ga = isHome ? h.awayGoals : h.homeGoals;
+        return gf > ga ? "W" : gf < ga ? "L" : "D";
+    });
+}
+function FormDots({ clubId, matchHistory, count = 5, dotSize = 7 }) {
+    const form = recentForm(clubId, matchHistory, count);
+    if (!form.length)
+        return null;
+    return (React.createElement("div", { className: "flex items-center gap-0.5" }, form.map((r, i) => (React.createElement("span", { key: i, className: "rounded-full inline-block", style: { width: dotSize, height: dotSize, backgroundColor: r === "W" ? C.green : r === "L" ? C.red : C.sub }, title: r })))));
+}
+function LeagueTableView({ rows, divIndex, matchHistory }) {
     const n = rows.length;
+    const formFor = (clubId) => recentForm(clubId, matchHistory);
     return (React.createElement("div", { className: "rounded-lg overflow-hidden border", style: { backgroundColor: C.card, borderColor: C.border } },
         React.createElement("table", { className: "w-full text-xs" },
             React.createElement("thead", null,
@@ -1744,7 +1813,8 @@ function LeagueTableView({ rows, divIndex }) {
                     React.createElement("th", { className: "py-2" }, "D"),
                     React.createElement("th", { className: "py-2" }, "L"),
                     React.createElement("th", { className: "py-2" }, "GD"),
-                    React.createElement("th", { className: "py-2 pr-2" }, "Pts"))),
+                    React.createElement("th", { className: "py-2 pr-2" }, "Pts"),
+                    React.createElement("th", { className: "py-2 pr-2" }, "Form"))),
             React.createElement("tbody", null, rows.map((c, i) => {
                 const autoPromo = divIndex != null && divIndex > 0 && i === 0;
                 const playoffPromo = divIndex != null && divIndex > 0 && i === 1;
@@ -1753,13 +1823,18 @@ function LeagueTableView({ rows, divIndex }) {
                 const barColor = autoPromo || autoReleg ? (autoPromo ? C.green : C.red) : (playoffPromo || playoffReleg) ? C.amber : "transparent";
                 return (React.createElement("tr", { key: c.id, className: "border-b last:border-0", style: { borderColor: C.cardAlt, borderLeft: `3px solid ${barColor}` } },
                     React.createElement("td", { className: "py-1.5 px-2", style: { color: C.sub } }, i + 1),
-                    React.createElement("td", { className: "py-1.5 font-semibold" }, c.name),
+                    React.createElement("td", { className: "py-1.5 font-semibold" },
+                        React.createElement("span", { className: "flex items-center gap-1.5" },
+                            React.createElement(ClubCrest, { club: c, size: 16 }),
+                            c.name)),
                     React.createElement("td", { className: "py-1.5 text-center" }, c.played),
                     React.createElement("td", { className: "py-1.5 text-center" }, c.won),
                     React.createElement("td", { className: "py-1.5 text-center" }, c.drawn),
                     React.createElement("td", { className: "py-1.5 text-center" }, c.lost),
                     React.createElement("td", { className: "py-1.5 text-center" }, c.gd),
-                    React.createElement("td", { className: "py-1.5 pr-2 text-center font-bold" }, c.pts)));
+                    React.createElement("td", { className: "py-1.5 pr-2 text-center font-bold" }, c.pts),
+                    React.createElement("td", { className: "py-1.5 pr-2" },
+                        React.createElement("div", { className: "flex items-center justify-center gap-0.5" }, formFor(c.id).map((r, fi) => (React.createElement("span", { key: fi, className: "rounded-full inline-block", style: { width: 7, height: 7, backgroundColor: r === "W" ? C.green : r === "L" ? C.red : C.sub }, title: r })))))));
             })))));
 }
 function PlayerStatsTable({ xi, appeared, teamId, events, playerStats, stamina }) {
@@ -1812,6 +1887,24 @@ function SubPanel({ side, xi, bench, onSub }) {
                         p.overall)))),
                 bench.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "No bench players available."))))));
 }
+function ReadOnlyPitch({ club, squadPlayers }) {
+    const slots = (FORMATIONS[club.formation] || FORMATIONS["4-4-2"]).slots;
+    const lineup = club.lineup || {};
+    return (React.createElement("div", { className: "relative w-full rounded-lg overflow-hidden border", style: { paddingBottom: "90%", backgroundColor: "#2E7D4F", borderColor: C.border } },
+        React.createElement("div", { className: "absolute inset-2 border-2 rounded", style: { borderColor: "rgba(255,255,255,0.4)" } }),
+        React.createElement("div", { className: "absolute left-2 right-2 border-t-2", style: { top: "50%", borderColor: "rgba(255,255,255,0.4)" } }),
+        React.createElement("div", { className: "absolute rounded-full border-2", style: { borderColor: "rgba(255,255,255,0.4)", width: "26%", paddingBottom: "26%", left: "37%", top: "42%" } }),
+        slots.map((slot) => {
+            const pid = lineup[slot.id];
+            const player = pid ? squadPlayers.find((p) => p.id === pid) : null;
+            const unavailable = player && (player.injuredWeeks > 0 || player.suspendedMatches > 0);
+            return (React.createElement("div", { key: slot.id, className: "absolute flex flex-col items-center", style: { left: `${slot.x}%`, top: `${100 - slot.y}%`, transform: "translate(-50%, -50%)" } },
+                React.createElement("div", { className: "relative" },
+                    React.createElement("div", { className: "rounded-full flex items-center justify-center text-[9px] font-bold border-2", style: { width: 28, height: 28, backgroundColor: player ? "#FFFFFF" : "rgba(255,255,255,0.2)", borderColor: unavailable ? C.red : "#FFFFFF", color: player ? C.greenDark : "#FFFFFF" } }, player ? (player.jerseyNumber ?? player.overall) : slot.pos),
+                    unavailable && React.createElement("span", { className: "absolute", style: { top: -4, right: -4, fontSize: 11 } }, player.injuredWeeks > 0 ? "🩹" : "🟥")),
+                React.createElement("div", { className: "text-[7px] font-bold text-white mt-0.5 max-w-[60px] truncate" }, player ? player.name.split(" ").slice(-1)[0] : "Empty")));
+        })));
+}
 function Pitch({ club, squadPlayers, onAssign }) {
     const [openSlot, setOpenSlot] = useState(null);
     const slots = (FORMATIONS[club.formation] || FORMATIONS["4-4-2"]).slots;
@@ -1827,11 +1920,15 @@ function Pitch({ club, squadPlayers, onAssign }) {
                 const pid = lineup[slot.id];
                 const player = pid ? squadPlayers.find((p) => p.id === pid) : null;
                 const outOfPosition = player && player.position !== slot.pos;
+                const unavailable = player && (player.injuredWeeks > 0 || player.suspendedMatches > 0);
                 return (React.createElement("button", { key: slot.id, onClick: () => setOpenSlot(slot.id), className: "absolute flex flex-col items-center", style: { left: `${slot.x}%`, top: `${100 - slot.y}%`, transform: "translate(-50%, -50%)" } },
-                    React.createElement("div", { className: "rounded-full flex items-center justify-center text-[10px] font-bold border-2", style: { width: 34, height: 34, backgroundColor: player ? "#FFFFFF" : "rgba(255,255,255,0.25)", borderColor: outOfPosition ? C.amber : "#FFFFFF", color: player ? C.greenDark : "#FFFFFF" } }, player ? player.overall : slot.pos),
+                    React.createElement("div", { className: "relative" },
+                        React.createElement("div", { className: "rounded-full flex items-center justify-center text-[10px] font-bold border-2", style: { width: 34, height: 34, backgroundColor: player ? "#FFFFFF" : "rgba(255,255,255,0.25)", borderColor: unavailable ? C.red : outOfPosition ? C.amber : "#FFFFFF", color: player ? C.greenDark : "#FFFFFF" } }, player ? player.overall : slot.pos),
+                        unavailable && React.createElement("span", { className: "absolute", style: { top: -4, right: -4, fontSize: 12 } }, player.injuredWeeks > 0 ? "🩹" : "🟥")),
                     React.createElement("div", { className: "text-[8px] font-bold text-white mt-0.5 max-w-[64px] truncate" },
                         player ? player.name.split(" ").slice(-1)[0] : "Empty",
-                        outOfPosition ? " ⚠" : "")));
+                        outOfPosition ? " ⚠" : "",
+                        unavailable ? (player.injuredWeeks > 0 ? " OUT" : " SUSP") : "")));
             })),
         openSlot && (React.createElement("div", { className: "mt-3 rounded-lg p-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
             React.createElement("div", { className: "text-[10px] font-bold mb-2", style: { color: C.sub } },
@@ -1865,7 +1962,7 @@ function Pitch({ club, squadPlayers, onAssign }) {
             })(),
             React.createElement("button", { onClick: () => setOpenSlot(null), className: "mt-2 text-[10px] font-bold", style: { color: C.sub } }, "Cancel")))));
 }
-function ClubDetail({ club, squad, history, clubsById, onBack, onSign, onView, week }) {
+function ClubDetail({ club, squad, history, clubsById, onBack, onSign, onView, week, viewerClubId }) {
     const [seasonFilter, setSeasonFilter] = useState("all");
     const seasons = Array.from(new Set(history.map((h) => h.season))).sort((a, b) => b - a);
     const filtered = history.filter((h) => seasonFilter === "all" || h.season === Number(seasonFilter)).sort((a, b) => b.season - a.season || b.week - a.week);
@@ -1873,11 +1970,15 @@ function ClubDetail({ club, squad, history, clubsById, onBack, onSign, onView, w
     return (React.createElement("div", null,
         React.createElement("button", { onClick: onBack, className: "text-xs font-bold mb-3", style: { color: C.sub } }, "\u2190 Back to Clubs"),
         React.createElement("div", { className: "rounded-lg p-4 border mb-4", style: { backgroundColor: C.card, borderColor: C.border } },
-            React.createElement("div", { className: "text-xl font-bold mb-1" }, club.name),
-            React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } },
-                club.city,
-                " \u00B7 Formation ",
-                club.formation),
+            React.createElement("div", { className: "text-xl font-bold mb-1 flex items-center gap-2" },
+                React.createElement(ClubCrest, { club: club, size: 24 }),
+                club.name),
+            React.createElement("div", { className: "flex items-center justify-between mb-3" },
+                React.createElement("div", { className: "text-[10px]", style: { color: C.sub } },
+                    club.city,
+                    " \u00B7 Formation ",
+                    club.formation || "not set"),
+                React.createElement(FormDots, { clubId: club.id, matchHistory: history })),
             React.createElement("div", { className: "grid grid-cols-2 gap-2" },
                 React.createElement("div", { className: "rounded-lg p-2.5", style: { backgroundColor: C.cardAlt } },
                     React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, "BUDGET"),
@@ -1897,6 +1998,39 @@ function ClubDetail({ club, squad, history, clubsById, onBack, onSign, onView, w
                 React.createElement("div", { className: "rounded-lg p-2.5", style: { backgroundColor: C.cardAlt } },
                     React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, "POINTS"),
                     React.createElement("div", { className: "font-black" }, club.pts)))),
+        viewerClubId && viewerClubId !== club.id && (() => {
+            const h2h = history.filter((h) => h.homeId === viewerClubId || h.awayId === viewerClubId);
+            if (!h2h.length)
+                return null;
+            let wins = 0, draws = 0, losses = 0;
+            h2h.forEach((h) => {
+                const viewerIsHome = h.homeId === viewerClubId;
+                const vf = viewerIsHome ? h.homeGoals : h.awayGoals, va = viewerIsHome ? h.awayGoals : h.homeGoals;
+                if (vf > va)
+                    wins++;
+                else if (vf < va)
+                    losses++;
+                else
+                    draws++;
+            });
+            return (React.createElement("div", { className: "rounded-lg p-4 border mb-4", style: { backgroundColor: C.card, borderColor: C.border } },
+                React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } },
+                    "HEAD TO HEAD \u2014 YOU vs ",
+                    club.name.toUpperCase()),
+                React.createElement("div", { className: "text-sm font-bold" },
+                    wins,
+                    "W - ",
+                    draws,
+                    "D - ",
+                    losses,
+                    "L ",
+                    React.createElement("span", { className: "text-[10px] font-normal", style: { color: C.sub } },
+                        "(",
+                        h2h.length,
+                        " meeting",
+                        h2h.length === 1 ? "" : "s",
+                        ")"))));
+        })(),
         React.createElement("div", { className: "rounded-lg p-4 border mb-4", style: { backgroundColor: C.card, borderColor: C.border } },
             React.createElement("div", { className: "flex items-center gap-2 text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } },
                 React.createElement(Ico, { e: "\uD83C\uDFC6", size: 13 }),
@@ -1994,6 +2128,8 @@ function App() {
     const [squadFilter, setSquadFilter] = useState({ pos: "all", sort: "overall" });
     const [viewingPlayerId, setViewingPlayerId] = useState(null);
     const [renamingId, setRenamingId] = useState(null);
+    const [editingJerseyId, setEditingJerseyId] = useState(null);
+    const [jerseyEditValue, setJerseyEditValue] = useState("");
     const [confirmingRelease, setConfirmingRelease] = useState(false);
     const [confirmingRestart, setConfirmingRestart] = useState(false);
     const [hasRenamedAnyPlayer, setHasRenamedAnyPlayer] = useState(false);
@@ -2013,6 +2149,8 @@ function App() {
     const [playoffTies, setPlayoffTies] = useState([]);
     const [roundupSeason, setRoundupSeason] = useState(null);
     const [showLiveTable, setShowLiveTable] = useState(false);
+    const [matchSpeed, setMatchSpeed] = useState(1);
+    const [matchViewTab, setMatchViewTab] = useState("action");
     const [incomingOffers, setIncomingOffers] = useState([]);
     const [confirmingExtension, setConfirmingExtension] = useState(false);
     const [playerProfileView, setPlayerProfileView] = useState("overview");
@@ -2032,6 +2170,7 @@ function App() {
     const [goalPopup, setGoalPopup] = useState(null);
     const lastEventCountRef = useRef(0);
     const [setupSelection, setSetupSelection] = useState([]);
+    const [setupDivisionFilter, setSetupDivisionFilter] = useState(DIVISIONS_SEED[0].id);
     const [customTeamName, setCustomTeamName] = useState("");
     const [managerNames, setManagerNames] = useState(["", ""]);
     const clubsById = useMemo(() => {
@@ -2160,6 +2299,9 @@ function App() {
         });
     }
     function takeNewJob(newClubId) {
+        // Taking over an AI club means inheriting whatever formation/lineup it already had — that's
+        // not you choosing anything, so it gets reset exactly like a brand new game does.
+        setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === newClubId ? { ...c, formation: null, lineup: {}, managerId: null } : c)) }));
         setControlled((c) => c.map((cid) => (cid === sackedClubId ? newClubId : cid)));
         setActiveIdx(controlled.indexOf(sackedClubId) >= 0 ? controlled.indexOf(sackedClubId) : 0);
         setSackedClubId(null);
@@ -2169,6 +2311,9 @@ function App() {
         if (!jobOffer)
             return;
         const { fromClubId, currentClubId } = jobOffer;
+        // Same reasoning as takeNewJob — a fresh appointment starts with no formation chosen yet,
+        // not whatever the previous AI manager happened to be using.
+        setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === fromClubId ? { ...c, formation: null, lineup: {}, managerId: null } : c)) }));
         setControlled((c) => c.map((cid) => (cid === currentClubId ? fromClubId : cid)));
         setActiveIdx(controlled.indexOf(currentClubId) >= 0 ? controlled.indexOf(currentClubId) : 0);
         setNews((n) => [{ id: uid("n"), text: `${clubsById[fromClubId]?.name} confirm the appointment of their new manager.`, clubIds: [fromClubId], week, season }, ...n].slice(0, 150));
@@ -2270,6 +2415,8 @@ function App() {
             clearTimeout(goalPopupTimeoutRef.current);
         setGoalPopup(null);
         setShowLiveTable(false);
+        setMatchSpeed(1);
+        setMatchViewTab("action");
         // simulate every other match happening this week right now, so the table/results are
         // already current while you're watching yours rather than waiting until you advance the week
         const afterLeague = simulateOtherLeagueFixtures(world.clubs, world.players, isCup ? undefined : fixtureOrTie.id);
@@ -2422,14 +2569,16 @@ function App() {
     }
     function toggleMatchRunning() { setActiveMatch((m) => (m ? { ...m, running: !m.running } : m)); }
     // Real-time clock: while the match is "running", advance one game-minute roughly
-    // every 1.3 real seconds — 90 minutes over about two real minutes.
+    // every 1.3 real seconds — 90 minutes over about two real minutes. Speed controls scale how
+    // many minutes get advanced per tick rather than the tick rate itself, so the pacing of
+    // events/goal popups stays smooth even at x2/x3.
     useEffect(() => {
         if (!activeMatch || !activeMatch.running)
             return;
-        const id = setInterval(() => { advanceMatchMinutes(1); }, 1333);
+        const id = setInterval(() => { advanceMatchMinutes(matchSpeed); }, 1333);
         return () => clearInterval(id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeMatch?.running, activeMatch?.id]);
+    }, [activeMatch?.running, activeMatch?.id, matchSpeed]);
     // Goal popup — watches for newly-added goal events and shows a brief banner.
     // Uses a ref (not an effect cleanup) for the dismiss timer, since activeMatch.events
     // gets a new array reference every tick even when nothing new happened — a cleanup-based
@@ -2526,20 +2675,31 @@ function App() {
             return { ...m, homePressing: isHome ? pressing : m.homePressing, awayPressing: !isHome ? pressing : m.awayPressing, events: [...m.events, evt] };
         });
     }
-    function finalizeCupTieResult(cupKey, ties, byeId) {
+    function finalizeCupTieResult(cupKey, ties, byeId, clubsIn) {
         const allDone = ties.every((t) => t.played);
         if (!allDone)
-            return;
+            return clubsIn;
         const isEmpire = cupKey === "empire";
         const cupObj = isEmpire ? empireCup : divisionCups[cupKey];
         if (!cupObj)
-            return;
+            return clubsIn;
         const roundIdx = cupObj.rounds.length - 1;
         const prizeFn = isEmpire ? cupPrizeForRound : divisionCupPrizeForRound;
         const loserPrize = prizeFn(roundIdx);
         const losers = ties.map((t) => (t.winnerId === t.homeId ? t.awayId : t.homeId));
+        // clubsIn is only passed by the AI-batch path (simulateOtherCupTies), which accumulates its
+        // own local clubs array and commits it in one go afterward — if we updated world state
+        // independently here, that later commit would silently overwrite it with a stale copy
+        // (exactly what was wiping out cup-winner trophies). When clubsIn is provided we mutate and
+        // return a plain array instead; the interactive-match path (no clubsIn) keeps using setWorld
+        // directly since its own follow-up update there is a safe functional one.
+        let clubs = clubsIn;
         if (losers.length) {
-            setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (losers.includes(c.id) ? { ...c, budget: c.budget + loserPrize } : c)) }));
+            const applyLoserPrize = (c) => (losers.includes(c.id) ? { ...c, budget: c.budget + loserPrize } : c);
+            if (clubs)
+                clubs = clubs.map(applyLoserPrize);
+            else
+                setWorld((w) => ({ ...w, clubs: w.clubs.map(applyLoserPrize) }));
         }
         const winners = ties.map((t) => t.winnerId);
         if (byeId)
@@ -2570,15 +2730,16 @@ function App() {
                     setEmpireCup((c) => ({ ...c, champion: champId }));
                 else
                     setDivisionCups((cups) => ({ ...cups, [cupKey]: { ...cups[cupKey], champion: champId } }));
-                setWorld((w) => ({
-                    ...w,
-                    clubs: w.clubs.map((c) => (c.id === champId ? {
-                        ...c, cupTitlesWon: (c.cupTitlesWon || 0) + 1,
-                        cupTitlesHistory: [...(c.cupTitlesHistory || []), { season, cupName: cupNameFor(cupKey) }],
-                        fanPopularity: clamp((c.fanPopularity ?? 50) + (isEmpire ? 12 : 6), 5, 100),
-                        budget: c.budget + championPrize,
-                    } : c)),
-                }));
+                const applyTrophy = (c) => (c.id === champId ? {
+                    ...c, cupTitlesWon: (c.cupTitlesWon || 0) + 1,
+                    cupTitlesHistory: [...(c.cupTitlesHistory || []), { season, cupName: cupNameFor(cupKey) }],
+                    fanPopularity: clamp((c.fanPopularity ?? 50) + (isEmpire ? 12 : 6), 5, 100),
+                    budget: c.budget + championPrize,
+                } : c);
+                if (clubs)
+                    clubs = clubs.map(applyTrophy);
+                else
+                    setWorld((w) => ({ ...w, clubs: w.clubs.map(applyTrophy) }));
                 setNews((n) => [{ id: uid("n"), text: `🏆 ${clubsById[champId]?.name} win the ${cupNameFor(cupKey)}${championPrize ? ` and ${formatMoney(championPrize)} in prize money` : ""}!`, clubIds: [champId], week, season }, ...n].slice(0, 150));
                 const winSlot = controlled.indexOf(champId);
                 if (winSlot >= 0) {
@@ -2587,10 +2748,11 @@ function App() {
                     setManagerReputations((arr) => { const next = [...arr]; next[winSlot] = clamp((next[winSlot] ?? 50) + (isEmpire ? 12 : 5), 0, 100); return next; });
                 }
             }
-            return;
+            return clubs;
         }
         // Deliberately NOT drawing the next round here — see advanceAllCupRoundsIfReady, called only
         // from advanceWeek, so a new round never gets forced on you within the same week you're playing.
+        return clubs;
     }
     function advanceAllCupRoundsIfReady() {
         CUP_DEFS.forEach((def) => {
@@ -2675,6 +2837,35 @@ function App() {
             setNews((n) => [...newsBatch, ...n].slice(0, 150));
         if (historyBatch.length)
             setMatchHistory((mh) => [...historyBatch, ...mh].slice(0, 4000));
+    }
+    function checkStreakNews(clubId, thisResult) {
+        if (!controlled.includes(clubId))
+            return;
+        const priorResults = matchHistory.filter((h) => !h.isCup && !h.isPlayoff && (h.homeId === clubId || h.awayId === clubId)).map((h) => {
+            const isHome = h.homeId === clubId;
+            const gf = isHome ? h.homeGoals : h.awayGoals, ga = isHome ? h.awayGoals : h.homeGoals;
+            return gf > ga ? "win" : gf < ga ? "loss" : "draw";
+        });
+        const results = [thisResult, ...priorResults];
+        let winStreak = 0;
+        while (winStreak < results.length && results[winStreak] === "win")
+            winStreak++;
+        let lossStreak = 0;
+        while (lossStreak < results.length && results[lossStreak] === "loss")
+            lossStreak++;
+        let unbeaten = 0;
+        while (unbeaten < results.length && results[unbeaten] !== "loss")
+            unbeaten++;
+        const clubName = clubsById[clubId]?.name;
+        if ([3, 5, 7, 10].includes(winStreak)) {
+            setNews((n) => [{ id: uid("n"), text: `🔥 ${clubName} have won ${winStreak} in a row!`, clubIds: [clubId], week, season }, ...n].slice(0, 150));
+        }
+        else if ([3, 5].includes(lossStreak)) {
+            setNews((n) => [{ id: uid("n"), text: `😬 ${clubName} have lost ${lossStreak} in a row.`, clubIds: [clubId], week, season }, ...n].slice(0, 150));
+        }
+        else if ([5, 10, 15].includes(unbeaten)) {
+            setNews((n) => [{ id: uid("n"), text: `🛡️ ${clubName} are unbeaten in ${unbeaten}.`, clubIds: [clubId], week, season }, ...n].slice(0, 150));
+        }
     }
     function finalizeMatch() {
         const m = activeMatch;
@@ -2785,6 +2976,8 @@ function App() {
                 }),
             }));
             setMatchHistory((mh) => [{ id: uid("mh"), season, week, divisionId: clubsById[m.homeId]?.divisionId, isCup: false, homeId: m.homeId, awayId: m.awayId, homeGoals: hg, awayGoals: ag }, ...mh].slice(0, 4000));
+            checkStreakNews(m.homeId, homeResult);
+            checkStreakNews(m.awayId, awayResult);
         }
         // Full-time ratings (shots/saves/stamina all tracked for this interactive match) + Man of the Match
         // Uses everyone who appeared, including players subbed off earlier — not just the final on-pitch XI.
@@ -3164,7 +3357,7 @@ function App() {
             setNews((n) => [...newsBatch, ...n].slice(0, 150));
         if (historyBatch.length)
             setMatchHistory((mh) => [...historyBatch, ...mh].slice(0, 4000));
-        finalizedRounds.forEach(({ cupKey, ties, byeId }) => finalizeCupTieResult(cupKey, ties, byeId));
+        finalizedRounds.forEach(({ cupKey, ties, byeId }) => { clubs = finalizeCupTieResult(cupKey, ties, byeId, clubs) || clubs; });
         return { clubs, players };
     }
     function rolloverSeasonIfNeeded(newWeek) {
@@ -3259,6 +3452,7 @@ function App() {
                 const newDivIdx = DIVISIONS_SEED.findIndex((d) => d.id === divisionId);
                 const bestTierIndexEver = Math.min(c.bestTierIndexEver ?? oldDivIdx, newDivIdx);
                 let boardConfidence = c.boardConfidence ?? 62;
+                let seasonReviewDelta = null;
                 let nextObjective = c.seasonObjective;
                 let leagueTitles = c.leagueTitles || [];
                 if (pos === 0) {
@@ -3286,6 +3480,7 @@ function App() {
                     else if (key === "settle-in")
                         met = pos < total - 2;
                     boardConfidence = clamp(boardConfidence + (met ? 12 : -18), 0, 100);
+                    seasonReviewDelta = met ? 12 : -18;
                     boardNews.push({ id: uid("n"), text: `Board review at ${c.name}: ${met ? "objective met" : "objective missed"} (${OBJECTIVE_LABELS[key] || key}). Confidence now ${boardConfidence}/100.`, clubIds: [c.id], week: newWeek, season });
                     boardNews.push({ id: uid("n"), text: `${c.name} finish ${pos + 1}${pos === 0 ? "st" : pos === 1 ? "nd" : pos === 2 ? "rd" : "th"} and collect ${formatMoney(leaguePrizeMoney(oldDivIdx, pos, total))} in end-of-season prize money.`, clubIds: [c.id], week: newWeek, season });
                     nextObjective = moveDown[c.id] ? "promotion" : moveUp[c.id] ? "avoid-relegation" : computeObjectiveKey(newDivIdx, pos, total);
@@ -3305,7 +3500,7 @@ function App() {
                     if (squad.length)
                         newFormation = pickSensibleFormation(squad);
                 }
-                return { ...c, divisionId, formation: newFormation, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, pts: 0, bestTierIndexEver, boardConfidence, seasonObjective: nextObjective, leagueTitles, budget: c.budget + leaguePrizeMoney(oldDivIdx, pos, total) };
+                return { ...c, divisionId, formation: newFormation, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, pts: 0, bestTierIndexEver, boardConfidence, boardConfidenceLastDelta: seasonReviewDelta ?? c.boardConfidenceLastDelta, seasonObjective: nextObjective, leagueTitles, budget: c.budget + leaguePrizeMoney(oldDivIdx, pos, total) };
             });
             let fx = [];
             DIVISIONS_SEED.forEach((div) => {
@@ -3591,7 +3786,7 @@ function App() {
                     resultDelta = gf > ga ? 1 : gf < ga ? -1 : 0;
                 }
                 const delta = (inDangerZone ? -1 : 0) + resultDelta;
-                return { ...c, boardConfidence: clamp((c.boardConfidence ?? 62) + delta, 0, 100) };
+                return { ...c, boardConfidence: clamp((c.boardConfidence ?? 62) + delta, 0, 100), boardConfidenceLastDelta: delta };
             }),
         }));
         const newWeek = week + 1;
@@ -3765,11 +3960,17 @@ function App() {
         setNews((n) => [{ id: uid("n"), text: `${club.name} carry out repairs to bring the ground back up to full condition.`, clubIds: [clubId], week, season }, ...n].slice(0, 150));
     }
     function signFreeAgent(playerId, clubId) {
-        setWorld((w) => ({
-            ...w,
-            clubs: w.clubs.map((c) => (c.id === clubId ? { ...c, freeAgentSignCount: (c.freeAgentSignCount || 0) + 1 } : c)),
-            players: w.players.map((p) => (p.id === playerId ? { ...p, clubId, contractWeeks: randInt(52, 156), wage: Math.round(50 + p.overall * p.overall * 0.11) } : p)),
-        }));
+        setWorld((w) => {
+            const used = new Set(w.players.filter((p) => p.clubId === clubId && p.jerseyNumber >= 1 && p.jerseyNumber <= 99).map((p) => p.jerseyNumber));
+            let freshNumber = 1;
+            while (used.has(freshNumber) && freshNumber <= 99)
+                freshNumber++;
+            return {
+                ...w,
+                clubs: w.clubs.map((c) => (c.id === clubId ? { ...c, freeAgentSignCount: (c.freeAgentSignCount || 0) + 1 } : c)),
+                players: w.players.map((p) => (p.id === playerId ? { ...p, clubId, contractWeeks: randInt(52, 156), wage: Math.round(50 + p.overall * p.overall * 0.11), jerseyNumber: (p.jerseyNumber >= 1 && p.jerseyNumber <= 99) ? p.jerseyNumber : freshNumber } : p)),
+            };
+        });
         setNews((n) => [{ id: uid("n"), text: `${clubsById[clubId]?.name} signed a free agent.`, clubIds: [clubId], week, season }, ...n].slice(0, 150));
     }
     function openNegotiation(player) {
@@ -3868,30 +4069,37 @@ function App() {
         setRenamingId(null);
         setHasRenamedAnyPlayer(true);
     }
+    function changeJerseyNumber(playerId, newNumber) {
+        const num = parseInt(newNumber, 10);
+        if (!num || num < 1 || num > 99) {
+            setEditingJerseyId(null);
+            return;
+        }
+        setWorld((w) => {
+            const player = w.players.find((p) => p.id === playerId);
+            if (!player)
+                return w;
+            // Real squads never share a number — if a teammate already has this one, the two just swap
+            // rather than blocking the change or silently creating a duplicate.
+            const clash = player.clubId ? w.players.find((p) => p.clubId === player.clubId && p.id !== playerId && p.jerseyNumber === num) : null;
+            return {
+                ...w,
+                players: w.players.map((p) => {
+                    if (p.id === playerId)
+                        return { ...p, jerseyNumber: num };
+                    if (clash && p.id === clash.id)
+                        return { ...p, jerseyNumber: player.jerseyNumber ?? null };
+                    return p;
+                }),
+            };
+        });
+        setEditingJerseyId(null);
+    }
     function setFormation(clubId, formation) {
         // Deliberately no auto-fill here — picking or changing a formation just resets the lineup
-        // to empty. You choose every player yourself; the separate "Auto-fill Best XI" button is
-        // there if you ever want the game to suggest a lineup, but it's never automatic.
+        // to empty. You choose every player yourself, slot by slot; there is no auto-fill option
+        // anywhere in the game, by design.
         setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === clubId ? { ...c, formation, lineup: {}, formationsUsed: { ...(c.formationsUsed || {}), [formation]: true } } : c)) }));
-    }
-    function autoAssignLineup(clubId) {
-        setWorld((w) => {
-            const club = w.clubs.find((c) => c.id === clubId);
-            if (!club.formation)
-                return w;
-            const squad = w.players.filter((p) => p.clubId === clubId && !p.injuredWeeks);
-            const slots = FORMATIONS[club.formation].slots;
-            const byPos = { GK: [], DF: [], MF: [], FW: [] };
-            squad.forEach((p) => byPos[p.position]?.push(p));
-            Object.keys(byPos).forEach((k) => byPos[k].sort((a, b) => b.overall - a.overall));
-            const used = new Set();
-            const lineup = {};
-            slots.forEach((slot) => { const pool = byPos[slot.pos].filter((p) => !used.has(p.id)); if (pool[0]) {
-                lineup[slot.id] = pool[0].id;
-                used.add(pool[0].id);
-            } });
-            return { ...w, clubs: w.clubs.map((c) => (c.id === clubId ? { ...c, lineup } : c)) };
-        });
     }
     function assignSlot(clubId, slotId, playerId) {
         setWorld((w) => ({
@@ -4000,6 +4208,26 @@ function App() {
                 // recompute wages from current stat formula, and backfill potential/stadium/release fields for saves
                 // made before those features existed — without this, migrated players would wrongly get the
                 // "no headroom left" development penalty, and old clubs would be missing stadium data.
+                // Jersey numbers: some older saves have players with 0/missing numbers from a since-fixed data
+                // import issue — assign each a fresh, club-unique number (1-99) rather than leaving them blank.
+                const usedJerseyNumbers = {};
+                if (data.world) {
+                    data.world.players.forEach((p) => {
+                        if (p.clubId && p.jerseyNumber >= 1 && p.jerseyNumber <= 99) {
+                            (usedJerseyNumbers[p.clubId] = usedJerseyNumbers[p.clubId] || new Set()).add(p.jerseyNumber);
+                        }
+                    });
+                }
+                function nextFreeJerseyNumber(clubId) {
+                    const used = usedJerseyNumbers[clubId] || (usedJerseyNumbers[clubId] = new Set());
+                    for (let n = 1; n <= 99; n++) {
+                        if (!used.has(n)) {
+                            used.add(n);
+                            return n;
+                        }
+                    }
+                    return 1;
+                }
                 const migratedWorld = data.world ? {
                     ...data.world,
                     players: data.world.players.map((p) => {
@@ -4008,8 +4236,9 @@ function App() {
                             const headroom = p.age <= 19 ? randInt(8, 25) : p.age <= 23 ? randInt(3, 15) : p.age <= 28 ? randInt(0, 6) : 0;
                             potential = clamp(p.overall + headroom, p.overall, 99);
                         }
+                        const jerseyNumber = p.clubId ? ((p.jerseyNumber >= 1 && p.jerseyNumber <= 99) ? p.jerseyNumber : nextFreeJerseyNumber(p.clubId)) : (p.jerseyNumber || null);
                         return {
-                            ...p, potential, wage: Math.round(50 + p.overall * p.overall * 0.11),
+                            ...p, potential, jerseyNumber, wage: Math.round(50 + p.overall * p.overall * 0.11),
                             releaseRequested: p.releaseRequested || false, lowMoraleWeeks: p.lowMoraleWeeks || 0,
                             shots: p.shots || 0, saves: p.saves || 0, assists: p.assists || 0, goalsConceded: p.goalsConceded || 0,
                             seasonApps: p.seasonApps || 0, seasonGoals: p.seasonGoals || 0, seasonShots: p.seasonShots || 0, seasonSaves: p.seasonSaves || 0, seasonAssists: p.seasonAssists || 0, seasonGoalsConceded: p.seasonGoalsConceded || 0,
@@ -4183,17 +4412,19 @@ function App() {
        RENDER: SETUP
        ======================================================================= */
     if (phase === "setup") {
-        return (React.createElement("div", { className: "min-h-full w-full p-4 sm:p-8", style: pageBg },
+        return (React.createElement("div", { className: "min-h-full w-full p-4 sm:p-8", style: { backgroundColor: "#0A0A0A", minHeight: "100vh", color: C.text } },
             React.createElement("div", { className: "max-w-2xl mx-auto" },
                 React.createElement("div", { className: "text-center mb-8 pt-6" },
-                    React.createElement("div", { className: "pse-display text-4xl sm:text-5xl tracking-tight leading-none", style: { color: C.greenDark } },
-                        "BOOKED",
-                        React.createElement("span", { style: { color: C.amber } }, "!")),
-                    React.createElement("div", { className: "text-[11px] tracking-[0.35em] font-bold mt-1", style: { color: C.sub } }, "PITCH SIDE EMPIRE")),
+                    React.createElement("img", { src: LOGO_DATA_URI, alt: "Booked! Pitch Side Empire", className: "mx-auto mb-4", style: { width: 180, height: 180, objectFit: "contain" } }),
+                    React.createElement("button", { onClick: () => setShowSlotPicker(true), className: "rounded-lg border text-xs px-4 py-2.5 flex items-center justify-center gap-1.5 mx-auto", style: { borderColor: C.border, color: "#FFFFFF", backgroundColor: "rgba(255,255,255,0.08)" } },
+                        React.createElement(Ico, { e: "\uD83D\uDCC2", size: 13 }),
+                        " Load saved game",
+                        saveSlots.length ? ` (${saveSlots.length})` : "")),
                 React.createElement("div", { className: "rounded-lg p-4 mb-4 border", style: { backgroundColor: C.card, borderColor: C.border } },
                     React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "CHOOSE YOUR CLUB"),
                     React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Pick one club to manage \u2014 or two, if you and a family member want to take turns running rival clubs in the same world. Real clubs throughout, and the best-known real footballers fill the top squads first. Every player can be renamed (pencil icon on their profile) if you'd rather put in your own picks."),
-                    DIVISIONS_SEED.map((div) => (React.createElement("div", { key: div.id, className: "mb-3" },
+                    React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-3" }, DIVISIONS_SEED.map((div) => React.createElement(Pill, { key: div.id, active: setupDivisionFilter === div.id, onClick: () => setSetupDivisionFilter(div.id) }, div.name))),
+                    DIVISIONS_SEED.filter((div) => div.id === setupDivisionFilter).map((div) => (React.createElement("div", { key: div.id, className: "mb-3" },
                         React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.amber } }, div.name.toUpperCase()),
                         React.createElement("div", { className: "grid grid-cols-2 sm:grid-cols-3 gap-2" }, div.clubs.map((c) => {
                             const sel = setupSelection.includes(c.id);
@@ -4216,10 +4447,6 @@ function App() {
                             CLUBS_SETUP_LOOKUP[cid]?.name),
                         React.createElement("input", { value: managerNames[i] || "", onChange: (e) => setManagerNames((n) => { const next = [...n]; next[i] = e.target.value; return next; }), placeholder: "Your name", className: "w-full border rounded px-3 py-2 text-sm", style: selStyle })))))),
                 React.createElement("button", { onClick: startGame, disabled: setupSelection.length === 0, className: "w-full py-3.5 rounded-lg font-black tracking-widest text-sm pse-display disabled:opacity-40 disabled:cursor-not-allowed", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "KICK OFF"),
-                React.createElement("button", { onClick: () => setShowSlotPicker(true), className: "w-full mt-2 py-2.5 rounded-lg border text-xs flex items-center justify-center gap-1.5", style: { borderColor: C.border, color: C.sub } },
-                    React.createElement(Ico, { e: "\uD83D\uDCC2", size: 13 }),
-                    " Load saved game",
-                    saveSlots.length ? ` (${saveSlots.length})` : ""),
                 saveMsg && React.createElement("div", { className: "text-center text-[10px] mt-2", style: { color: C.green } }, saveMsg))));
     }
     /* =======================================================================
@@ -4305,13 +4532,18 @@ function App() {
                             !m.isCup && !m.isPlayoff ? " — WITH THIS RESULT APPLIED" : ""),
                         React.createElement(LeagueTableView, { rows: rows, divIndex: divIdx })));
                 })(),
-                React.createElement("div", { className: "rounded-lg mb-4 border overflow-hidden", style: { backgroundColor: "#2E7D4F", borderColor: C.border } },
-                    React.createElement("div", { className: "relative", style: { height: 44 } },
-                        React.createElement("div", { className: "absolute inset-y-0 left-0", style: { width: "50%", borderRight: "2px solid rgba(255,255,255,0.35)" } }),
-                        React.createElement("div", { className: "absolute", style: { left: 4, top: "50%", transform: "translateY(-50%)", width: 6, height: 22, backgroundColor: "rgba(255,255,255,0.6)", borderRadius: 2 } }),
-                        React.createElement("div", { className: "absolute", style: { right: 4, top: "50%", transform: "translateY(-50%)", width: 6, height: 22, backgroundColor: "rgba(255,255,255,0.6)", borderRadius: 2 } }),
-                        React.createElement("div", { style: { position: "absolute", top: "50%", left: `${50 + (m.ballPosition ?? 0) / 2}%`, transform: "translate(-50%, -50%)", transition: "left 1.2s linear", fontSize: 20 } }, "\u26BD"))),
-                (() => {
+                !full && (React.createElement("div", { className: "flex items-center gap-1.5 mb-3" },
+                    React.createElement("span", { className: "text-[9px] font-bold mr-1", style: { color: C.sub } }, "SPEED"),
+                    [1, 2, 3].map((s) => (React.createElement("button", { key: s, onClick: () => setMatchSpeed(s), className: "px-3 py-1.5 rounded-lg text-xs font-bold border", style: { borderColor: matchSpeed === s ? C.green : C.border, backgroundColor: matchSpeed === s ? C.green : C.card, color: matchSpeed === s ? "#FFFFFF" : C.text } },
+                        "\u00D7",
+                        s))),
+                    !m.atHalftime && (React.createElement("button", { onClick: toggleMatchRunning, className: "ml-auto px-4 py-1.5 rounded-lg text-xs font-bold border", style: { borderColor: m.running ? C.red : C.amber, backgroundColor: m.running ? C.red : C.amber, color: "#FFFFFF" } }, m.minute === 0 && !m.running ? "▶ KICK OFF" : m.running ? "⏸ PAUSE" : "▶ RESUME")))),
+                React.createElement("div", { className: "flex gap-1.5 mb-3" }, [["action", "🎯", "Action"], ["pitch", "🟩", "Pitch"], ["stats", "📊", "Stats"], ["ratings", "⭐", "Ratings"]].map(([key, icon, label]) => (React.createElement("button", { key: key, onClick: () => setMatchViewTab(key), className: "flex-1 py-2 rounded-lg text-[10px] font-bold border flex flex-col items-center gap-0.5", style: { borderColor: matchViewTab === key ? C.green : C.border, backgroundColor: matchViewTab === key ? C.cardAlt : C.card, color: matchViewTab === key ? C.greenDark : C.sub } },
+                    React.createElement("span", { style: { fontSize: 14 } }, icon),
+                    label)))),
+                matchViewTab === "pitch" && (React.createElement("div", { className: "mb-4" },
+                    React.createElement(MatchPitchView, { homeXI: m.homeXI, awayXI: m.awayXI, homeFormation: m.homeFormation, awayFormation: m.awayFormation, ballPosition: m.ballPosition, homeName: home.name, awayName: away.name }))),
+                matchViewTab === "stats" && (() => {
                     const totalPoss = (m.homePossession || 0) + (m.awayPossession || 0);
                     const homePct = totalPoss > 0 ? Math.round(((m.homePossession || 0) / totalPoss) * 100) : 50;
                     const awayPct = 100 - homePct;
@@ -4342,6 +4574,13 @@ function App() {
                                 React.createElement("span", { className: "font-bold w-8 text-right" }, a))))));
                         })()));
                 })(),
+                matchViewTab === "ratings" && (React.createElement("div", { className: "space-y-3 mb-4" },
+                    React.createElement("div", null,
+                        React.createElement("div", { className: "text-[10px] font-bold mb-1", style: { color: C.green } }, home.name),
+                        React.createElement(PlayerStatsTable, { xi: m.homeXI, appeared: m.homeAppeared, teamId: m.homeId, events: m.events, playerStats: m.playerStats, stamina: m.stamina })),
+                    React.createElement("div", null,
+                        React.createElement("div", { className: "text-[10px] font-bold mb-1", style: { color: C.amber } }, away.name),
+                        React.createElement(PlayerStatsTable, { xi: m.awayXI, appeared: m.awayAppeared, teamId: m.awayId, events: m.events, playerStats: m.playerStats, stamina: m.stamina })))),
                 full && motmPreview && (React.createElement("div", { className: "rounded-lg p-3 mb-4 text-center border", style: { backgroundColor: C.cardAlt, borderColor: C.amber } },
                     React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-0.5", style: { color: C.sub } }, "MAN OF THE MATCH"),
                     React.createElement("div", { className: "text-base font-bold" },
@@ -4351,7 +4590,7 @@ function App() {
                         clubsById[motmPreview.player.clubId]?.name,
                         " \u00B7 rating ",
                         motmPreview.rating.toFixed(1)))),
-                React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-4" },
+                matchViewTab === "action" && (React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-4" },
                     React.createElement("div", { className: "rounded-lg p-3 max-h-48 overflow-y-auto border", style: { backgroundColor: C.card, borderColor: C.border } },
                         React.createElement("div", { className: "text-[9px] tracking-widest font-bold mb-1.5 text-center", style: { color: C.green } }, home.name.toUpperCase()),
                         m.events.filter((e) => e.teamId === m.homeId).length === 0 && React.createElement("div", { className: "text-[10px] italic text-center py-2", style: { color: C.sub } }, "Nothing to report yet..."),
@@ -4369,7 +4608,7 @@ function App() {
                                 e.minute,
                                 "'"),
                             " ",
-                            e.kind === "goal" ? `⚽ ${e.scorerName}${e.assistName ? ` (assist: ${e.assistName})` : ""}` : e.text))))),
+                            e.kind === "goal" ? `⚽ ${e.scorerName}${e.assistName ? ` (assist: ${e.assistName})` : ""}` : e.text)))))),
                 m.atHalftime && (homeIsControlled || awayIsControlled) && (React.createElement("div", { className: "mb-4 space-y-3" },
                     React.createElement("div", { className: "text-[10px] tracking-widest font-bold", style: { color: C.sub } }, "FIRST-HALF PLAYER STATS \u2014 use this to decide who needs a rest"),
                     homeIsControlled && (React.createElement("div", null,
@@ -4443,9 +4682,7 @@ function App() {
                                     React.createElement("span", { className: "pr-8" }, track),
                                     React.createElement("span", { className: "pr-8" }, track))))));
                 })(),
-                !full ? (m.atHalftime
-                    ? React.createElement("button", { onClick: continueFromHalftime, className: "w-full py-3 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "START SECOND HALF")
-                    : React.createElement("button", { onClick: toggleMatchRunning, className: "w-full py-3 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: m.running ? C.red : C.amber, color: "#FFFFFF" } }, m.minute === 0 && !m.running ? "KICK OFF" : m.running ? "⏸ PAUSE" : "▶ RESUME")) : (React.createElement("button", { onClick: finalizeMatch, className: "w-full py-3 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "CONFIRM RESULT")))));
+                m.atHalftime ? (React.createElement("button", { onClick: continueFromHalftime, className: "w-full py-3 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "START SECOND HALF")) : full ? (React.createElement("button", { onClick: finalizeMatch, className: "w-full py-3 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "CONFIRM RESULT")) : null)));
     }
     if (viewingPlayerId && world) {
         const viewingPlayer = world.players.find((p) => p.id === viewingPlayerId);
@@ -4466,9 +4703,10 @@ function App() {
                         React.createElement("button", { onClick: () => setRenamingId(null), style: { color: C.sub } },
                             React.createElement(Ico, { e: "\u2715", size: 18 })))) : (React.createElement("div", { className: "text-xl font-bold flex items-center gap-1.5" },
                         viewingPlayer.name,
-                        viewingPlayer.jerseyNumber != null && React.createElement("span", { className: "text-sm font-normal", style: { color: C.sub } },
+                        editingJerseyId === viewingPlayer.id ? (React.createElement("input", { autoFocus: true, type: "number", min: "1", max: "99", value: jerseyEditValue, onChange: (e) => setJerseyEditValue(e.target.value), onBlur: () => changeJerseyNumber(viewingPlayer.id, jerseyEditValue), onKeyDown: (e) => e.key === "Enter" && changeJerseyNumber(viewingPlayer.id, jerseyEditValue), className: "text-sm font-normal border rounded px-1.5 py-0.5", style: { width: 48, ...selStyle } })) : (React.createElement("button", { onClick: () => { setEditingJerseyId(viewingPlayer.id); setJerseyEditValue(String(viewingPlayer.jerseyNumber ?? "")); }, className: "text-sm font-normal flex items-center gap-0.5", style: { color: C.sub } },
                             "#",
-                            viewingPlayer.jerseyNumber),
+                            viewingPlayer.jerseyNumber ?? "—",
+                            React.createElement(Ico, { e: "\u270E", size: 11 }))),
                         React.createElement("button", { onClick: () => { setRenamingId(viewingPlayer.id); setRenameValue(viewingPlayer.name); }, style: { color: C.sub } },
                             React.createElement(Ico, { e: "\u270E", size: 13 }))))),
                     React.createElement("div", { className: "text-[11px] font-bold mb-1", style: { color: C.green } },
@@ -4763,9 +5001,7 @@ function App() {
                         }))));
                 })(),
                 React.createElement("div", { className: "rounded-lg p-4 mb-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
-                    React.createElement("div", { className: "flex items-center justify-between mb-2" },
-                        React.createElement("div", { className: "text-[11px] tracking-widest font-bold", style: { color: C.green } }, "FORMATION & TACTICS"),
-                        React.createElement("button", { onClick: () => autoAssignLineup(activeClubId), disabled: !activeClub.formation, className: "text-[10px] font-bold px-2.5 py-1.5 rounded disabled:opacity-40", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "Auto-fill Best XI")),
+                    React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, "FORMATION & TACTICS"),
                     React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.sub } }, activeClub.formation ? "FORMATION (changing this resets your lineup)" : "FORMATION — CHOOSE ONE TO GET STARTED"),
                     React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-3" }, FORMATION_KEYS.map((f) => React.createElement(Pill, { key: f, active: activeClub.formation === f, onClick: () => setFormation(activeClubId, f) }, f))),
                     React.createElement("div", { className: "grid grid-cols-2 gap-3 mb-2" },
@@ -4913,12 +5149,16 @@ function App() {
                     squadPlayers.length === 0 && React.createElement("div", { className: "text-xs italic col-span-2", style: { color: C.sub } }, "No players match this filter.")))),
             tab === "club" && activeClub && (React.createElement("div", { className: "space-y-4" },
                 React.createElement("div", { className: "rounded-lg p-4 border", style: { backgroundColor: C.card, borderColor: C.border } },
-                    React.createElement("div", { className: "pse-display text-xl mb-1" }, activeClub.name),
-                    React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } },
-                        activeClub.city,
-                        " \u00B7 ",
-                        myDivision?.name,
-                        managerNames[activeIdx] ? ` · Managed by ${managerNames[activeIdx]}` : ""),
+                    React.createElement("div", { className: "pse-display text-xl mb-1 flex items-center gap-2" },
+                        React.createElement(ClubCrest, { club: activeClub, size: 26 }),
+                        activeClub.name),
+                    React.createElement("div", { className: "flex items-center justify-between mb-3" },
+                        React.createElement("div", { className: "text-[10px]", style: { color: C.sub } },
+                            activeClub.city,
+                            " \u00B7 ",
+                            myDivision?.name,
+                            managerNames[activeIdx] ? ` · Managed by ${managerNames[activeIdx]}` : ""),
+                        React.createElement(FormDots, { clubId: activeClub.id, matchHistory: matchHistory })),
                     React.createElement("div", { className: "flex gap-1.5 mb-2" },
                         React.createElement(Pill, { active: clubStatsMode === "season", onClick: () => setClubStatsMode("season") }, "This Season"),
                         React.createElement(Pill, { active: clubStatsMode === "career", onClick: () => setClubStatsMode("career") }, "Career")),
@@ -4927,9 +5167,30 @@ function App() {
                         : [["Played", activeClub.careerPlayed || 0], ["Points", activeClub.careerPts || 0], ["Record", `${activeClub.careerWon || 0}W-${activeClub.careerDrawn || 0}D-${activeClub.careerLost || 0}L`], ["Goal Diff", (activeClub.careerGf || 0) - (activeClub.careerGa || 0)]]).map(([label, val]) => (React.createElement("div", { key: label, className: "rounded-lg p-2.5", style: { backgroundColor: C.cardAlt } },
                         React.createElement("div", { className: "text-[9px] tracking-wide", style: { color: C.sub } }, label.toUpperCase()),
                         React.createElement("div", { className: "font-black text-lg" }, val))))),
-                    React.createElement("div", { className: "rounded-lg p-2.5 mb-3", style: { backgroundColor: C.cardAlt } },
-                        React.createElement("div", { className: "text-[9px] tracking-wide", style: { color: C.sub } }, "SQUAD SIZE"),
-                        React.createElement("div", { className: "font-black text-lg" }, playersOfClub(activeClub.id).length)),
+                    React.createElement("div", { className: "grid grid-cols-3 gap-2 mb-3" },
+                        React.createElement("div", { className: "rounded-lg p-2.5", style: { backgroundColor: C.cardAlt } },
+                            React.createElement("div", { className: "text-[9px] tracking-wide", style: { color: C.sub } }, "SQUAD SIZE"),
+                            React.createElement("div", { className: "font-black text-lg" }, playersOfClub(activeClub.id).length)),
+                        (() => {
+                            const squad = playersOfClub(activeClub.id);
+                            const avgAge = squad.length ? (squad.reduce((s, p) => s + p.age, 0) / squad.length).toFixed(1) : "—";
+                            const weeklyWages = squad.reduce((s, p) => s + p.wage, 0);
+                            const weeksOfCover = weeklyWages > 0 ? Math.floor(activeClub.budget / weeklyWages) : 99;
+                            return (React.createElement(React.Fragment, null,
+                                React.createElement("div", { className: "rounded-lg p-2.5", style: { backgroundColor: C.cardAlt } },
+                                    React.createElement("div", { className: "text-[9px] tracking-wide", style: { color: C.sub } }, "AVG AGE"),
+                                    React.createElement("div", { className: "font-black text-lg" }, avgAge)),
+                                React.createElement("div", { className: "rounded-lg p-2.5", style: { backgroundColor: C.cardAlt } },
+                                    React.createElement("div", { className: "text-[9px] tracking-wide", style: { color: C.sub } }, "WAGES COVER"),
+                                    React.createElement("div", { className: "font-black text-lg", style: { color: weeksOfCover < 8 ? C.red : weeksOfCover < 20 ? C.amber : C.text } },
+                                        weeksOfCover,
+                                        "wk"))));
+                        })()),
+                    activeClub.formation && (React.createElement("div", { className: "mb-1" },
+                        React.createElement("div", { className: "text-[9px] tracking-widest font-bold mb-1.5", style: { color: C.sub } },
+                            "STARTING XI \u2014 ",
+                            activeClub.formation),
+                        React.createElement(ReadOnlyPitch, { club: activeClub, squadPlayers: playersOfClub(activeClub.id) }))),
                     React.createElement("div", { className: "flex gap-2" },
                         React.createElement("button", { onClick: () => { setTab("finance"); }, className: "flex-1 py-2 rounded-lg text-xs font-bold border", style: { borderColor: C.border, color: C.text } }, "View Finances"),
                         React.createElement("button", { onClick: () => { setResultsFilter({ season: "all", divisionId: "all", clubId: activeClubId }); setTab("results"); }, className: "flex-1 py-2 rounded-lg text-xs font-bold border", style: { borderColor: C.border, color: C.text } }, "Match History"))),
@@ -4940,7 +5201,10 @@ function App() {
                         React.createElement("span", null, "Board confidence"),
                         React.createElement("span", { className: "font-bold", style: { color: C.text } },
                             activeClub.boardConfidence ?? 62,
-                            "/100")),
+                            "/100",
+                            activeClub.boardConfidenceLastDelta ? React.createElement("span", { style: { color: activeClub.boardConfidenceLastDelta > 0 ? C.green : C.red } },
+                                " ",
+                                activeClub.boardConfidenceLastDelta > 0 ? "↑" : "↓") : null)),
                     React.createElement("div", { className: "h-2 rounded-full overflow-hidden mb-3", style: { backgroundColor: C.cardAlt } },
                         React.createElement("div", { className: "h-full", style: { width: `${activeClub.boardConfidence ?? 62}%`, backgroundColor: (activeClub.boardConfidence ?? 62) < 25 ? C.red : (activeClub.boardConfidence ?? 62) < 50 ? C.amber : C.green } })),
                     (activeClub.boardConfidence ?? 62) < 25 && React.createElement("div", { className: "text-[10px] mb-2", style: { color: C.red } }, "Your job is genuinely at risk. Results need to turn around."),
@@ -5026,7 +5290,7 @@ function App() {
                             t.penaltyScore ? " (pens)" : "") : React.createElement("span", { style: { color: C.sub } }, "Pending"))))))),
                 DIVISIONS_SEED.map((div, idx) => (React.createElement("div", { key: div.id },
                     React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, div.name.toUpperCase()),
-                    React.createElement(LeagueTableView, { rows: tableFor(div.id), divIndex: idx })))))),
+                    React.createElement(LeagueTableView, { rows: tableFor(div.id), divIndex: idx, matchHistory: matchHistory })))))),
             tab === "menu" && (React.createElement("div", { className: "space-y-2.5" }, [
                 { key: "fixtures", label: "Fixtures", desc: "Your full season schedule", icon: "📅" },
                 { key: "market", label: "Transfer Market", desc: "Browse free agents and rival squads, full stats included", icon: "➕" },
@@ -5050,21 +5314,26 @@ function App() {
                 React.createElement("div", { className: "space-y-1.5" }, clubFixtures(activeClubId).map((f) => {
                     const home = clubsById[f.homeId], away = clubsById[f.awayId];
                     const isNext = !f.played && f.id === nextFixtureFor(activeClubId)?.id && f.week === week;
+                    const opponentId = f.homeId === activeClubId ? f.awayId : f.homeId;
                     return (React.createElement("div", { key: f.id, className: "rounded-lg px-3 py-2 flex items-center justify-between border", style: { backgroundColor: C.card, borderColor: C.border } },
-                        React.createElement("div", { className: "text-xs" },
-                            React.createElement("span", { className: "text-[9px] mr-2", style: { color: C.sub } },
+                        React.createElement("div", { className: "text-xs flex items-center gap-1.5" },
+                            React.createElement("span", { className: "text-[9px] mr-0.5", style: { color: C.sub } },
                                 "Wk",
                                 f.week),
-                            React.createElement("span", { className: "text-[9px] font-bold mr-1.5 px-1 py-0.5 rounded", style: { backgroundColor: C.cardAlt, color: f.homeId === activeClubId ? C.green : C.amber } }, f.homeId === activeClubId ? "H" : "A"),
+                            React.createElement("span", { className: "text-[9px] font-bold mr-1 px-1 py-0.5 rounded", style: { backgroundColor: C.cardAlt, color: f.homeId === activeClubId ? C.green : C.amber } }, f.homeId === activeClubId ? "H" : "A"),
+                            React.createElement(ClubCrest, { club: home, size: 16 }),
                             React.createElement("span", { className: f.played && f.homeGoals > f.awayGoals ? "font-bold" : "" }, home.name),
-                            React.createElement("span", { className: "mx-1.5", style: { color: C.sub } }, "vs"),
+                            React.createElement("span", { className: "mx-0.5", style: { color: C.sub } }, "vs"),
+                            React.createElement(ClubCrest, { club: away, size: 16 }),
                             React.createElement("span", { className: f.played && f.awayGoals > f.homeGoals ? "font-bold" : "" }, away.name)),
-                        f.played ? React.createElement("span", { className: "text-xs font-bold" },
-                            f.homeGoals,
-                            " - ",
-                            f.awayGoals)
-                            : isNext ? React.createElement("button", { onClick: () => openMatch(f, false), className: "text-[10px] font-bold px-2.5 py-1 rounded", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "PLAY")
-                                : React.createElement("span", { className: "text-[10px]", style: { color: C.sub } }, "Upcoming")));
+                        React.createElement("div", { className: "flex items-center gap-2 flex-shrink-0" },
+                            !f.played && React.createElement(FormDots, { clubId: opponentId, matchHistory: matchHistory, count: 5, dotSize: 6 }),
+                            f.played ? React.createElement("span", { className: "text-xs font-bold" },
+                                f.homeGoals,
+                                " - ",
+                                f.awayGoals)
+                                : isNext ? React.createElement("button", { onClick: () => openMatch(f, false), className: "text-[10px] font-bold px-2.5 py-1 rounded", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "PLAY")
+                                    : React.createElement("span", { className: "text-[10px]", style: { color: C.sub } }, "Upcoming"))));
                 })))),
             tab === "market" && world && (marketPlayerId ? (() => {
                 const p = world.players.find((pl) => pl.id === marketPlayerId);
@@ -5139,7 +5408,8 @@ function App() {
                                 p.overall,
                                 " \u00B7 ",
                                 formatMoney(p.wage || Math.round(50 + p.overall * p.overall * 0.11)),
-                                "/wk")),
+                                "/wk"),
+                            React.createElement(BreakoutBadge, { player: p })),
                         React.createElement("span", { style: { color: C.sub } }, "\u203A")))),
                     freeAgents.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "No free agents right now.")),
                 React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "SIGN FROM RIVAL CLUBS"),
@@ -5155,7 +5425,8 @@ function App() {
                                 " \u00B7 OVR ",
                                 p.overall,
                                 " \u00B7 ",
-                                clubsById[p.clubId]?.name)),
+                                clubsById[p.clubId]?.name),
+                            React.createElement(BreakoutBadge, { player: p })),
                         onCooldown ? React.createElement("span", { className: "text-[9px]", style: { color: C.sub } },
                             p.transferCooldownUntil - week,
                             "wk") : React.createElement("span", { style: { color: C.sub } }, "\u203A")));
@@ -5237,7 +5508,7 @@ function App() {
                             }),
                             !cupObj?.champion && roundTies.ties.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Waiting on the next round to be drawn."))))));
             })(),
-            tab === "clubs" && world && (clubDetailId ? (React.createElement(ClubDetail, { club: clubsById[clubDetailId], squad: playersOfClub(clubDetailId), history: matchHistory.filter((h) => h.homeId === clubDetailId || h.awayId === clubDetailId), clubsById: clubsById, onBack: () => setClubDetailId(null), onSign: clubDetailId === activeClubId ? null : (p) => openNegotiation(p), onView: (p) => setViewingPlayerId(p.id), week: week })) : (React.createElement("div", null,
+            tab === "clubs" && world && (clubDetailId ? (React.createElement(ClubDetail, { club: clubsById[clubDetailId], squad: playersOfClub(clubDetailId), history: matchHistory.filter((h) => h.homeId === clubDetailId || h.awayId === clubDetailId), clubsById: clubsById, onBack: () => setClubDetailId(null), onSign: clubDetailId === activeClubId ? null : (p) => openNegotiation(p), onView: (p) => setViewingPlayerId(p.id), week: week, viewerClubId: activeClubId })) : (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, "ALL CLUBS"),
                 DIVISIONS_SEED.map((div) => (React.createElement("div", { key: div.id, className: "mb-4" },
                     React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.amber } }, div.name.toUpperCase()),
@@ -5538,7 +5809,8 @@ function App() {
                                         " \u00B7 Age ",
                                         p.age,
                                         " \u00B7 ",
-                                        p.clubId ? clubsById[p.clubId]?.name : "Free Agent")),
+                                        p.clubId ? clubsById[p.clubId]?.name : "Free Agent"),
+                                    React.createElement(BreakoutBadge, { player: p })),
                                 React.createElement("span", { style: { color: C.sub } }, "\u203A")));
                         }),
                         (!hiredScout.report || hiredScout.report.length === 0) && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nothing found this week.")))) : hiredScout && controlled.includes(hiredScout.clubId) ? (React.createElement("div", { className: "rounded-lg p-4 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
