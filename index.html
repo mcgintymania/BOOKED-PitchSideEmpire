@@ -293,6 +293,7 @@ table{border-collapse:collapse;}
 .whitespace-nowrap{white-space:nowrap;}
 .inline-flex{display:inline-flex;}
 .max-w-\[60px\]{max-width:60px;}
+.mb-10{margin-bottom:2.5rem;}
 
 </style>
 </head>
@@ -499,6 +500,16 @@ const STADIUM_UPGRADES = [
     { key: "expand", name: "Expand Capacity", desc: "+2,500 seats, permanently raising attendance ceiling", capacityAdd: 2500, unlockSeason: 2 },
     { key: "facilities", name: "Upgrade Facilities", desc: "Better hospitality & fan experience — lifts ticket prices and merch appeal for good", tierAdd: 1, unlockSeason: 3 },
 ];
+const ACADEMY_UNLOCK_SEASON = 2;
+const ACADEMY_MAX_TIER = 3;
+function academyUpgradeCost(club) {
+    const tier = club.academyTier || 0;
+    return Math.round(150000 + tier * 130000);
+}
+// Real strategy cost: the same money could sign a ready-made player right now. The academy is a
+// bet on the future instead of the present — a genuinely different way to build a squad, not
+// just a cheaper version of buying.
+function academyGraduateChance(tier) { return tier * 0.15; }
 function stadiumUpgradeCost(club, key) {
     const tier = club.stadiumTier || 0;
     if (key === "expand")
@@ -717,6 +728,19 @@ function genPlayer(clubId, position, tierBoost = 0, usedNames = null) {
     player.potential = clamp(player.overall + potentialHeadroom, player.overall, 99);
     player.wage = Math.round(50 + player.overall * player.overall * 0.11);
     return player;
+}
+// An academy graduate is deliberately raw (low current overall) but genuinely high-ceiling —
+// the whole point is patience: a tier-3 academy produces a real prospect, not a bench-filler,
+// but it takes seasons of training before that potential shows up in their actual numbers.
+function genAcademyGraduate(clubId, academyTier, usedNames) {
+    const position = choice(POSITIONS);
+    const p = genPlayer(clubId, position, -6 + academyTier * 2, usedNames);
+    p.age = randInt(16, 18);
+    p.overall = overallFor(p);
+    const headroom = randInt(15, 22) + academyTier * 4;
+    p.potential = clamp(p.overall + headroom, p.overall, 99);
+    p.wage = Math.round(50 + p.overall * p.overall * 0.11);
+    return p;
 }
 function potentialGrowthMult(p) {
     const headroom = Math.max(0, (p.potential ?? p.overall) - p.overall);
@@ -1116,30 +1140,28 @@ function applyFatiguePenalty(p) {
 function xiFromLineup(club, squadPlayers) {
     const slots = (FORMATIONS[club.formation] || FORMATIONS["4-4-2"]).slots;
     const lineup = club.lineup || {};
-    const chosen = [];
     const usedIds = new Set();
-    slots.forEach((slot) => {
+    const available = squadPlayers.filter((p) => !p.injuredWeeks && !p.suspendedMatches);
+    // Filling each slot synchronously (rather than filling gaps in a separate pass afterward)
+    // guarantees chosen[i] always corresponds to slots[i] — needed for anything that wants to
+    // reconstruct the actual formation shape on a pitch, and a more accurate out-of-position check.
+    const chosen = slots.map((slot) => {
         const pid = lineup[slot.id];
-        const p = pid && squadPlayers.find((x) => x.id === pid && !x.injuredWeeks && !x.suspendedMatches);
-        if (p && !usedIds.has(p.id)) {
-            // Out of position is allowed — a manager short of recognised strikers can push a
-            // midfielder up front — but they're visibly less effective there, not equally good.
-            const outOfPosition = p.position !== slot.pos;
-            const withPosition = outOfPosition ? { ...p, overall: Math.max(1, Math.round(p.overall * 0.88)), outOfPosition: true, naturalPosition: p.position } : p;
-            chosen.push(applyFatiguePenalty(withPosition));
-            usedIds.add(p.id);
+        let p = pid ? available.find((x) => x.id === pid && !usedIds.has(x.id)) : null;
+        if (!p) {
+            const pool = available.filter((x) => !usedIds.has(x.id));
+            p = pool.find((x) => x.position === slot.pos) || [...pool].sort((a, b) => b.overall - a.overall)[0];
         }
+        if (!p)
+            return null;
+        usedIds.add(p.id);
+        // Out of position is allowed — a manager short of recognised strikers can push a
+        // midfielder up front — but they're visibly less effective there, not equally good.
+        const outOfPosition = p.position !== slot.pos;
+        const withPosition = outOfPosition ? { ...p, overall: Math.max(1, Math.round(p.overall * 0.88)), outOfPosition: true, naturalPosition: p.position } : p;
+        return applyFatiguePenalty(withPosition);
     });
-    if (chosen.length < 11) {
-        const remaining = squadPlayers.filter((p) => !usedIds.has(p.id) && !p.injuredWeeks && !p.suspendedMatches).sort((a, b) => b.overall - a.overall);
-        let idx = 0;
-        while (chosen.length < 11 && idx < remaining.length) {
-            chosen.push(applyFatiguePenalty(remaining[idx]));
-            usedIds.add(remaining[idx].id);
-            idx++;
-        }
-    }
-    return chosen;
+    return chosen.filter(Boolean);
 }
 function benchFor(players, xi) {
     const used = new Set(xi.map((p) => p.id));
@@ -1775,6 +1797,15 @@ function hashStr(s) {
         h = (h * 31 + s.charCodeAt(i)) >>> 0;
     return h;
 }
+function fanCountFor(club) {
+    // A real headline number — hundreds for a Sunday League club, thousands or more for a big
+    // one — derived from the same 0-100 popularity score that already drives attendance and
+    // merch income under the hood, scaled by stadium size so a huge ground with modest form
+    // still reads as a sizeable fanbase, not just a percentage.
+    const capacity = club.stadiumCapacity || (1500 + (club.tier || 1) * 700);
+    const pop = club.fanPopularity ?? 50;
+    return Math.round(capacity * (0.55 + (pop / 100) * 2.8));
+}
 function clubColor(clubId) {
     let hash = 0;
     for (let i = 0; i < clubId.length; i++)
@@ -1798,44 +1829,34 @@ function StatBar({ label, value }) {
         React.createElement("div", { className: "h-1.5 rounded-full overflow-hidden", style: { backgroundColor: C.cardAlt } },
             React.createElement("div", { className: "h-full", style: { width: `${value}%`, background: `linear-gradient(90deg, ${C.green}, ${C.amber})` } }))));
 }
-function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosition, homeName, awayName }) {
-    // Group by each player's own actual position rather than trusting index alignment with the
-    // formation's slot list — if any lineup slot was empty (injury, gap, etc.) every player after
-    // it shifts by one index, which was silently scrambling who got grouped where. Grouping by the
-    // player's real position sidesteps that entirely, however the underlying XI array is built.
-    function buildColumns(xi, xForPos) {
-        const groups = { GK: [], DF: [], MF: [], FW: [] };
-        (xi || []).forEach((player) => { if (player && groups[player.position])
-            groups[player.position].push(player); });
+function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosition, homeName, awayName, secondHalf }) {
+    // Real formation shape, own half only — this is the version that actually matched the Squad
+    // setup screen and didn't collide. Teams swap ends at half-time, same as a real match.
+    function slotDots(xi, formation, onRight) {
+        const slots = (FORMATIONS[formation] || FORMATIONS["4-4-2"]).slots;
         const dots = [];
-        ["GK", "DF", "MF", "FW"].forEach((pos) => {
-            const list = groups[pos];
-            const n = list.length;
-            list.forEach((player, i) => {
-                const y = n === 1 ? 50 : 10 + i * (80 / (n - 1));
-                dots.push({ player, x: xForPos[pos], y });
-            });
+        slots.forEach((slot, i) => {
+            const player = xi && xi[i];
+            if (!player)
+                return;
+            const depth = 2 + (slot.y / 100) * 46;
+            dots.push({ player, x: onRight ? 100 - depth : depth, y: slot.x });
         });
         return dots;
     }
-    // Forward lines are pushed just past the halfway line into the opponent's own third — a
-    // genuine crossing-over rather than two teams boxed into their own half — while still keeping
-    // every column at a distinct x so dots can never collide.
-    const homeDots = buildColumns(homeXI, { GK: 5, DF: 20, MF: 38, FW: 58 }).map((d) => ({ ...d, team: "home" }));
-    const awayDots = buildColumns(awayXI, { GK: 95, DF: 80, MF: 62, FW: 42 }).map((d) => ({ ...d, team: "away" }));
+    const homeOnRight = !!secondHalf;
+    const homeDots = slotDots(homeXI, homeFormation, homeOnRight).map((d) => ({ ...d, team: "home" }));
+    const awayDots = slotDots(awayXI, awayFormation, !homeOnRight).map((d) => ({ ...d, team: "away" }));
     const allDots = [...homeDots, ...awayDots];
-    const targetLeft = 50 + (ballPosition ?? 0) / 2;
-    // Snap the ball to whichever player sits closest to that point on the pitch, weighting
-    // horizontal distance much more heavily than vertical — so it tracks the run of play
-    // left-to-right, but among near-ties it favors players nearer vertical center rather than
-    // flying off to whichever player happens to be at the very top or bottom of a column.
-    let nearest = null, bestDist = Infinity;
-    allDots.forEach((d) => { const dist = Math.abs(d.x - targetLeft) * 3 + Math.abs(d.y - 50); if (dist < bestDist) {
+    // Continuous, direct from ballPosition every tick — no snapping to a discrete player position
+    // on the X axis, which is what made it look stuck. Y borrows whichever nearby player is
+    // closest in X, purely so it isn't glued to dead-center the whole match.
+    const ballLeft = 50 + (ballPosition ?? 0) / 2;
+    let ballTop = 50, bestDist = Infinity;
+    allDots.forEach((d) => { const dist = Math.abs(d.x - ballLeft); if (dist < bestDist) {
         bestDist = dist;
-        nearest = d;
+        ballTop = d.y;
     } });
-    const ballLeft = nearest ? nearest.x : targetLeft;
-    const ballTop = nearest ? nearest.y : 50;
     return (React.createElement("div", { className: "rounded-lg overflow-hidden border", style: { backgroundColor: "#2E7D4F", borderColor: C.border } },
         React.createElement("div", { className: "relative", style: { height: 300 } },
             React.createElement("div", { className: "absolute inset-y-0", style: { left: "50%", borderLeft: "2px solid rgba(255,255,255,0.35)" } }),
@@ -2179,7 +2200,8 @@ function ClubDetail({ club, squad, history, clubsById, onBack, onSign, onView, w
    Main component
    ========================================================================= */
 function App() {
-    const [phase, setPhase] = useState("setup");
+    const [phase, setPhase] = useState("home");
+    const [uiScale, setUiScale] = useState(1);
     const [world, setWorld] = useState(null);
     const [managers, setManagers] = useState([]);
     const [fixtures, setFixtures] = useState([]);
@@ -3731,9 +3753,29 @@ function App() {
             const debutCount = 24;
             const debutBatch = generateDebutBatch(developedPlayers, debutCount);
             setNews((n) => [{ id: uid("n"), text: `${debutCount} young players have entered the game as free agents ahead of Season ${season + 1} — mostly squad hopefuls, but scouts say one or two look promising.`, clubIds: [], week: newWeek, season }, ...n].slice(0, 150));
+            // Youth academy investment pays off here — a genuinely different way to build a squad than
+            // buying: patient, uncertain, but the player joins your own books directly rather than
+            // landing in the free agent pool everyone else can see too.
+            const academyUsedNames = new Set([...developedPlayers, ...debutBatch].map((p) => p.name));
+            const academyGraduates = [];
+            const academyNews = [];
+            newClubs.forEach((c) => {
+                if (!controlled.includes(c.id))
+                    return;
+                const tier = c.academyTier || 0;
+                if (tier <= 0)
+                    return;
+                if (Math.random() < academyGraduateChance(tier)) {
+                    const grad = genAcademyGraduate(c.id, tier, academyUsedNames);
+                    academyGraduates.push(grad);
+                    academyNews.push({ id: uid("n"), text: `🌱 ${c.name}'s academy produces a graduate: ${grad.name} (${grad.position}), age ${grad.age} — raw, but one to develop.`, clubIds: [c.id], week: newWeek, season });
+                }
+            });
+            if (academyNews.length)
+                setNews((n) => [...academyNews, ...n].slice(0, 150));
             // AI clubs tidy up their own squads — releasing surplus players, topping up if short,
             // paying a real fee if it's picking up someone's transfer-listed player.
-            const { players: balancedPlayers, budgetDeltas } = reconcileAiSquads([...developedPlayers, ...debutBatch], newClubs, controlled);
+            const { players: balancedPlayers, budgetDeltas } = reconcileAiSquads([...developedPlayers, ...debutBatch, ...academyGraduates], newClubs, controlled);
             const finalClubs = newClubs.map((c) => (budgetDeltas[c.id] ? { ...c, budget: c.budget + budgetDeltas[c.id] } : c));
             return { ...w, clubs: finalClubs, players: balancedPlayers };
         });
@@ -4067,6 +4109,20 @@ function App() {
     }
     function setPressing(clubId, pressing) {
         setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === clubId ? { ...c, pressing } : c)) }));
+    }
+    function upgradeAcademy(clubId) {
+        const club = clubsById[clubId];
+        if (!club)
+            return;
+        if (season < ACADEMY_UNLOCK_SEASON)
+            return;
+        if ((club.academyTier || 0) >= ACADEMY_MAX_TIER)
+            return;
+        const cost = academyUpgradeCost(club);
+        if (club.budget < cost)
+            return;
+        setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === clubId ? { ...c, budget: c.budget - cost, academyTier: (c.academyTier || 0) + 1 } : c)) }));
+        setNews((n) => [{ id: uid("n"), text: `${club.name} invest in their youth academy — tier ${(club.academyTier || 0) + 1} now.`, clubIds: [clubId], week, season }, ...n].slice(0, 150));
     }
     function upgradeStadium(clubId, key) {
         const club = clubsById[clubId];
@@ -4517,7 +4573,7 @@ function App() {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [matchHistory.length, week, season]);
-    const pageBg = { background: `linear-gradient(180deg, ${C.bg}, #F1EEE4)`, minHeight: "100vh", color: C.text };
+    const pageBg = { background: `linear-gradient(180deg, ${C.bg}, #F1EEE4)`, minHeight: "100vh", color: C.text, zoom: uiScale };
     if (showSlotPicker) {
         const sorted = [...saveSlots].sort((a, b) => b.savedAt - a.savedAt);
         return (React.createElement("div", { className: "min-h-full w-full p-4 sm:p-8", style: pageBg },
@@ -4557,8 +4613,43 @@ function App() {
     /* =======================================================================
        RENDER: SETUP
        ======================================================================= */
+    if (phase === "home") {
+        return (React.createElement("div", { className: "min-h-full w-full p-4 sm:p-8 flex items-center justify-center", style: { backgroundColor: "#0A0A0A", minHeight: "100vh", color: C.text, zoom: uiScale } },
+            React.createElement("div", { className: "max-w-md w-full" },
+                React.createElement("div", { className: "text-center mb-10" },
+                    React.createElement("img", { src: LOGO_DATA_URI, alt: "Booked! Pitch Side Empire", className: "mx-auto", style: { width: 220, height: 220, objectFit: "contain" } })),
+                React.createElement("div", { className: "space-y-2.5" },
+                    React.createElement("button", { onClick: () => setPhase("setup"), className: "w-full flex items-center gap-3 rounded-lg border px-4 py-3.5 text-left", style: { borderColor: C.amber, backgroundColor: "rgba(217,164,65,0.12)" } },
+                        React.createElement("span", { style: { fontSize: 20 } }, "\u2795"),
+                        React.createElement("span", null,
+                            React.createElement("span", { className: "block text-sm font-bold", style: { color: "#FFFFFF" } }, "New Career"),
+                            React.createElement("span", { className: "block text-[10px]", style: { color: C.sub } }, "Start a new career, in charge of a club or unemployed"))),
+                    React.createElement("button", { onClick: () => setShowSlotPicker(true), className: "w-full flex items-center gap-3 rounded-lg border px-4 py-3.5 text-left", style: { borderColor: C.border, backgroundColor: "rgba(255,255,255,0.06)" } },
+                        React.createElement("span", { style: { fontSize: 20 } }, "\uD83D\uDCC2"),
+                        React.createElement("span", null,
+                            React.createElement("span", { className: "block text-sm font-bold", style: { color: "#FFFFFF" } }, "Load Career"),
+                            React.createElement("span", { className: "block text-[10px]", style: { color: C.sub } }, saveSlots.length ? `${saveSlots.length} saved career${saveSlots.length === 1 ? "" : "s"}` : "No saved careers yet"))),
+                    React.createElement("button", { onClick: () => setPhase("settings"), className: "w-full flex items-center gap-3 rounded-lg border px-4 py-3.5 text-left", style: { borderColor: C.border, backgroundColor: "rgba(255,255,255,0.06)" } },
+                        React.createElement("span", { style: { fontSize: 20 } }, "\u2699\uFE0F"),
+                        React.createElement("span", null,
+                            React.createElement("span", { className: "block text-sm font-bold", style: { color: "#FFFFFF" } }, "Settings"),
+                            React.createElement("span", { className: "block text-[10px]", style: { color: C.sub } }, "Text size and display")))))));
+    }
+    if (phase === "settings") {
+        return (React.createElement("div", { className: "min-h-full w-full p-4 sm:p-8", style: { backgroundColor: "#0A0A0A", minHeight: "100vh", color: C.text, zoom: uiScale } },
+            React.createElement("div", { className: "max-w-md mx-auto" },
+                React.createElement("button", { onClick: () => setPhase("home"), className: "flex items-center gap-1.5 text-xs font-bold mb-6", style: { color: C.sub } },
+                    React.createElement(Ico, { e: "\u2190", size: 14 }),
+                    " Back"),
+                React.createElement("div", { className: "pse-display text-xl mb-6", style: { color: "#FFFFFF" } }, "SETTINGS"),
+                React.createElement("div", { className: "rounded-lg p-4 border mb-4", style: { borderColor: C.border, backgroundColor: "rgba(255,255,255,0.06)" } },
+                    React.createElement("div", { className: "text-xs font-bold mb-1", style: { color: "#FFFFFF" } }, "Text Size"),
+                    React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Scales the whole game screen \u2014 useful on smaller phones or if the default feels too small."),
+                    React.createElement("div", { className: "flex gap-2" }, [["Small", 0.9], ["Normal", 1], ["Large", 1.15]].map(([label, val]) => (React.createElement("button", { key: label, onClick: () => setUiScale(val), className: "flex-1 py-2 rounded-lg text-xs font-bold border", style: { borderColor: uiScale === val ? C.amber : C.border, backgroundColor: uiScale === val ? "rgba(217,164,65,0.2)" : "transparent", color: "#FFFFFF" } }, label))))),
+                React.createElement("div", { className: "text-[10px] text-center", style: { color: C.sub } }, "Text size applies to the main game screens. A couple of full-screen views (live match, player profile) may not fully match yet."))));
+    }
     if (phase === "setup") {
-        return (React.createElement("div", { className: "min-h-full w-full p-4 sm:p-8", style: { backgroundColor: "#0A0A0A", minHeight: "100vh", color: C.text } },
+        return (React.createElement("div", { className: "min-h-full w-full p-4 sm:p-8", style: { backgroundColor: "#0A0A0A", minHeight: "100vh", color: C.text, zoom: uiScale } },
             React.createElement("div", { className: "max-w-2xl mx-auto" },
                 React.createElement("div", { className: "text-center mb-8 pt-6" },
                     React.createElement("img", { src: LOGO_DATA_URI, alt: "Booked! Pitch Side Empire", className: "mx-auto mb-4", style: { width: 180, height: 180, objectFit: "contain" } }),
@@ -4593,7 +4684,7 @@ function App() {
                             CLUBS_SETUP_LOOKUP[cid]?.name),
                         React.createElement("input", { value: managerNames[i] || "", onChange: (e) => setManagerNames((n) => { const next = [...n]; next[i] = e.target.value; return next; }), placeholder: "Your name", className: "w-full border rounded px-3 py-2 text-sm", style: selStyle })))))),
                 React.createElement("button", { onClick: () => startGame(false), disabled: setupSelection.length === 0, className: "w-full py-3.5 rounded-lg font-black tracking-widest text-sm pse-display disabled:opacity-40 disabled:cursor-not-allowed", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "KICK OFF"),
-                React.createElement("button", { onClick: () => startGame(true), className: "w-full mt-2 py-2.5 rounded-lg text-xs font-bold border", style: { borderColor: C.border, color: C.text } }, "\uD83D\uDC40 Or start unemployed \u2014 browse jobs and pick one whenever you like"),
+                React.createElement("button", { onClick: () => startGame(true), className: "w-full mt-2 py-2.5 rounded-lg text-xs font-bold border", style: { borderColor: C.border, color: "#FFFFFF", backgroundColor: "rgba(255,255,255,0.08)" } }, "\uD83D\uDC40 Or start unemployed \u2014 browse jobs and pick one whenever you like"),
                 saveMsg && React.createElement("div", { className: "text-center text-[10px] mt-2", style: { color: C.green } }, saveMsg))));
     }
     /* =======================================================================
@@ -4675,7 +4766,7 @@ function App() {
                     React.createElement("span", { style: { fontSize: 14 } }, icon),
                     label)))),
                 matchViewTab === "pitch" && (React.createElement("div", { className: "mb-4" },
-                    React.createElement(MatchPitchView, { homeXI: m.homeXI, awayXI: m.awayXI, homeFormation: m.homeFormation, awayFormation: m.awayFormation, ballPosition: m.ballPosition, homeName: home.name, awayName: away.name }))),
+                    React.createElement(MatchPitchView, { homeXI: m.homeXI, awayXI: m.awayXI, homeFormation: m.homeFormation, awayFormation: m.awayFormation, ballPosition: m.ballPosition, homeName: home.name, awayName: away.name, secondHalf: m.minute >= 45 }))),
                 matchViewTab === "stats" && (() => {
                     const totalPoss = (m.homePossession || 0) + (m.awayPossession || 0);
                     const homePct = totalPoss > 0 ? Math.round(((m.homePossession || 0) / totalPoss) * 100) : 50;
@@ -5331,7 +5422,10 @@ function App() {
                             activeClub.city,
                             " \u00B7 ",
                             myDivision?.name,
-                            managerNames[activeIdx] ? ` · Managed by ${managerNames[activeIdx]}` : ""),
+                            managerNames[activeIdx] ? ` · Managed by ${managerNames[activeIdx]}` : "",
+                            " \u00B7 \uD83D\uDCE3 ",
+                            fanCountFor(activeClub).toLocaleString(),
+                            " fans"),
                         React.createElement(FormDots, { clubId: activeClub.id, matchHistory: matchHistory })),
                     React.createElement("div", { className: "flex gap-1.5 mb-2" },
                         React.createElement(Pill, { active: clubStatsMode === "season", onClick: () => setClubStatsMode("season") }, "This Season"),
@@ -5473,6 +5567,7 @@ function App() {
                 { key: "clubs", label: "All Clubs", desc: "Browse every club — squads, form, results", icon: "🏟️" },
                 { key: "history", label: "History & Stats", desc: "Past seasons and end-of-season records", icon: "🕓" },
                 { key: "playerstats", label: "Player Records", desc: "Top scorers, assists, and MOTM — filter by season, division, or club", icon: "📈" },
+                { key: "fanpopularity", label: "Fan Popularity", desc: "Every club ranked by how their fans feel right now", icon: "📣" },
                 { key: "news", label: "News", desc: "Everything happening across the league, filterable by club", icon: "📰" },
                 { key: "scouting", label: "Scouting", desc: hiredScout && hiredScout.clubId === activeClubId ? `${hiredScout.name} — ${SCOUT_SPECIALTY_LABELS[hiredScout.specialty]}` : season < 2 ? "🔒 Unlocks in Season 2" : "Hire a scout to surface transfer targets", icon: "🔎" },
                 { key: "leaderboard", label: "Manager Leaderboard", desc: "Reputation, record, and trophies head-to-head", icon: "🏅" },
@@ -5809,6 +5904,26 @@ function App() {
                                 statLabel)))),
                         rows.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nothing recorded for this filter combination yet.")))));
             })(),
+            tab === "fanpopularity" && world && (React.createElement("div", null,
+                React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "FAN POPULARITY"),
+                React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Rises with wins (the bigger the margin, the bigger the boost) and cup runs, drains with losses. Feeds directly into attendance and merchandise income \u2014 a beloved club fills more seats."),
+                React.createElement("div", { className: "space-y-1" }, [...world.clubs].sort((a, b) => fanCountFor(b) - fanCountFor(a)).map((c, i) => {
+                    const divIdx = DIVISIONS_SEED.findIndex((d) => d.id === c.divisionId);
+                    return (React.createElement("button", { key: c.id, onClick: () => setClubDetailId(c.id), className: "w-full flex items-center justify-between text-left rounded-lg px-3 py-2 text-xs border", style: { backgroundColor: controlled.includes(c.id) ? C.cardAlt : C.card, borderColor: controlled.includes(c.id) ? C.amber : C.border } },
+                        React.createElement("span", { className: "flex items-center gap-2" },
+                            React.createElement("span", { className: "w-5 text-right font-bold", style: { color: C.sub } }, i + 1),
+                            React.createElement(ClubCrest, { club: c, size: 18 }),
+                            React.createElement("span", null,
+                                React.createElement("span", { className: "font-bold" }, c.name),
+                                controlled.includes(c.id) && React.createElement("span", { className: "text-[9px] font-bold ml-1", style: { color: C.amber } }, "YOU"),
+                                " ",
+                                React.createElement("span", { style: { color: C.sub } },
+                                    "\u2014 ",
+                                    DIVISIONS_SEED[divIdx]?.name))),
+                        React.createElement("span", { className: "font-bold flex-shrink-0", style: { color: C.green } },
+                            fanCountFor(c).toLocaleString(),
+                            " fans")));
+                })))),
             tab === "finance" && activeClub && world && (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } },
                     "FINANCES \u2014 ",
@@ -5897,7 +6012,34 @@ function App() {
                                 React.createElement("span", { className: "text-[9px]", style: { color: C.sub } }, seasonLocked ? `Unlocks in Season ${u.unlockSeason} — prove yourselves first` : tierCapped ? `Facilities can only advance so fast — next tier available Season ${(activeClub.stadiumTier || 0) * 2 + 2}` : u.desc)),
                             React.createElement("span", { className: "text-xs font-bold flex-shrink-0 ml-2", style: { color: C.green } }, locked ? (seasonLocked ? `Season ${u.unlockSeason}` : "Capped") : formatMoney(cost))));
                     }))),
-                React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "MERCHANDISE \u2014 TOP SHIRT SELLERS"),
+                React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "YOUTH ACADEMY"),
+                React.createElement("div", { className: "rounded-lg p-3 border mb-4", style: { backgroundColor: C.card, borderColor: C.border } },
+                    React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "A genuinely different way to build a squad \u2014 instead of buying a finished player, you're betting on one who doesn't exist yet. Each tier raises the odds of producing a raw, high-potential graduate straight onto your books at the next season's start \u2014 nobody else ever sees them on the open market."),
+                    React.createElement("div", { className: "grid grid-cols-2 gap-2 mb-3" },
+                        React.createElement("div", { className: "rounded-lg p-2.5", style: { backgroundColor: C.cardAlt } },
+                            React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, "ACADEMY TIER"),
+                            React.createElement("div", { className: "font-black" },
+                                activeClub.academyTier || 0,
+                                "/",
+                                ACADEMY_MAX_TIER)),
+                        React.createElement("div", { className: "rounded-lg p-2.5", style: { backgroundColor: C.cardAlt } },
+                            React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, "GRADUATE CHANCE"),
+                            React.createElement("div", { className: "font-black" },
+                                Math.round(academyGraduateChance(activeClub.academyTier || 0) * 100),
+                                "%/season"))),
+                    (() => {
+                        const seasonLocked = season < ACADEMY_UNLOCK_SEASON;
+                        const maxed = (activeClub.academyTier || 0) >= ACADEMY_MAX_TIER;
+                        const locked = seasonLocked || maxed;
+                        const cost = academyUpgradeCost(activeClub);
+                        return (React.createElement("button", { onClick: () => upgradeAcademy(activeClubId), disabled: locked || activeClub.budget < cost, className: "w-full flex items-center justify-between px-3 py-2 rounded-lg border text-left disabled:opacity-40", style: { borderColor: C.border, backgroundColor: C.cardAlt } },
+                            React.createElement("span", null,
+                                React.createElement("span", { className: "text-xs font-bold block" },
+                                    "Invest in Academy",
+                                    locked && " 🔒"),
+                                React.createElement("span", { className: "text-[9px]", style: { color: C.sub } }, seasonLocked ? `Unlocks in Season ${ACADEMY_UNLOCK_SEASON}` : maxed ? "Already at maximum tier" : "Raises graduate odds and quality ceiling")),
+                            React.createElement("span", { className: "text-xs font-bold flex-shrink-0 ml-2", style: { color: C.green } }, locked ? (seasonLocked ? `Season ${ACADEMY_UNLOCK_SEASON}` : "Maxed") : formatMoney(cost))));
+                    })()),
                 React.createElement("div", { className: "space-y-1 mb-4" },
                     [...playersOfClub(activeClubId)].sort((a, b) => b.merchSales - a.merchSales).slice(0, 5).map((p) => (React.createElement("div", { key: p.id, className: "flex items-center justify-between text-xs rounded-lg px-3 py-1.5 border", style: { backgroundColor: C.card, borderColor: C.border } },
                         React.createElement("span", { className: "font-semibold" }, p.name),
