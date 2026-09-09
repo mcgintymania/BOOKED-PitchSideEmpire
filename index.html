@@ -296,6 +296,9 @@ table{border-collapse:collapse;}
 .mb-10{margin-bottom:2.5rem;}
 .w-14{width:3.5rem;}
 .my-3{margin-top:0.75rem;margin-bottom:0.75rem;}
+.items-end{align-items:flex-end;}
+.justify-end{justify-content:flex-end;}
+@media (min-width: 640px){.sm\:items-center{align-items:center;}}
 
 </style>
 </head>
@@ -667,6 +670,30 @@ function stadiumRepairCost(club) {
     const ref = club.startingBudget || club.budget || 100000;
     return Math.max(0, Math.round(missing * ref * 0.0015));
 }
+const STAFF_ROLES = {
+    coach: { label: "Assistant Coach", icon: "📋", effect: "Improves training — a better chance of players developing each season." },
+    doctor: { label: "Club Doctor", icon: "⚕️", effect: "Shortens injury recovery time, and improves the odds on accelerated treatment." },
+    fitness: { label: "Fitness Coach", icon: "🏃", effect: "Slows how fast match fatigue builds up across a season." },
+};
+function genStaffMember(role, tierBoost, usedNames) {
+    const skill = clamp(45 + tierBoost + randInt(-8, 12), 30, 99);
+    const age = randInt(28, 62);
+    return {
+        id: uid("staff"), name: usedNames ? genUniqueName(usedNames) : genName(), role, skill, age,
+        wageWeekly: Math.round(200 + skill * skill * 0.35), clubId: null,
+    };
+}
+function genStaffBatch(existingStaff, count) {
+    const usedNames = new Set(existingStaff.map((s) => s.name));
+    const batch = [];
+    for (let i = 0; i < count; i++) {
+        const role = choice(Object.keys(STAFF_ROLES));
+        const r = Math.random();
+        const tierBoost = r < 0.1 ? randInt(15, 30) : r < 0.4 ? randInt(4, 14) : randInt(-10, 3);
+        batch.push(genStaffMember(role, tierBoost, usedNames));
+    }
+    return batch;
+}
 const SCOUT_PRESETS = [
     { id: "s1", name: "Derek Ashworth", specialty: "youth", skill: 62, wageWeekly: 450, reputationRequired: 0, debutSeason: 1 },
     { id: "s2", name: "Mariana Silva", specialty: "star", skill: 81, wageWeekly: 1400, reputationRequired: 60, debutSeason: 1 },
@@ -950,9 +977,12 @@ function applyTraining(players, clubsById) {
         return updated;
     });
 }
-function developPlayer(p, clubTier) {
+function developPlayer(p, clubTier, coachSkill) {
     const potMult = potentialGrowthMult(p);
-    const growthChance = (p.age <= 20 ? 0.65 : p.age <= 23 ? 0.45 : p.age <= 26 ? 0.15 : 0) * potMult;
+    // A good assistant coach genuinely improves the odds of a player actually developing — up to
+    // roughly a third more likely at a top-skill coach, nothing at all with no coach hired.
+    const coachMult = 1 + ((coachSkill || 0) / 100) * 0.35;
+    const growthChance = (p.age <= 20 ? 0.65 : p.age <= 23 ? 0.45 : p.age <= 26 ? 0.15 : 0) * potMult * coachMult;
     const declineChance = p.age >= 33 ? 0.6 : p.age >= 30 ? 0.3 : p.age >= 28 ? 0.1 : 0;
     const stats = { ...p };
     STAT_KEYS.forEach((k) => {
@@ -1108,6 +1138,7 @@ function reconcileAiSquads(players, clubs, controlledIds) {
     const budgetDeltas = {};
     const aiClubIds = clubs.filter((c) => !controlledIds.includes(c.id)).map((c) => c.id);
     aiClubIds.forEach((clubId) => {
+        const club = clubs.find((c) => c.id === clubId);
         let squad = pool.filter((p) => p.clubId === clubId);
         if (squad.length > 30) {
             const sorted = [...squad].sort((a, b) => a.overall - b.overall);
@@ -1115,14 +1146,30 @@ function reconcileAiSquads(players, clubs, controlledIds) {
             pool = pool.map((p) => (toRelease.has(p.id) ? { ...p, clubId: null, contractWeeks: null } : p));
             squad = pool.filter((p) => p.clubId === clubId);
         }
-        if (squad.length < 18) {
+        if (squad.length < 18 && club) {
             const need = 18 - squad.length;
             // Genuinely available transfer-listed players (from clubs willing to sell) get first look —
             // this is the actual route by which your own listed players get picked up by a rival,
             // rather than AI clubs only ever topping up from free agents. A real fee changes hands.
+            // Wage sustainability now genuinely gates who gets signed here — a small club topping up
+            // an empty squad slot should reach for someone it can actually afford to keep paying, not
+            // reflexively grab the best overall available regardless of what that costs every week.
+            // This was the real, unbounded driver behind AI clubs quietly spiralling into debt.
+            const currentWageBill = squad.reduce((s, p) => s + (p.wage || 0), 0);
+            const affordableCeiling = (weeklySponsorship(club) + weeklyMerchIncome(club)) * 1.4;
             const listedSorted = pool.filter((p) => p.clubId && p.clubId !== clubId && p.transferListed && !controlledIds.includes(p.clubId)).sort((a, b) => b.overall - a.overall);
             const agentsSorted = pool.filter((p) => p.clubId === null && !p.retired).sort((a, b) => b.overall - a.overall);
-            const candidates = [...listedSorted, ...agentsSorted].slice(0, need);
+            const candidatePool = [...listedSorted, ...agentsSorted];
+            const candidates = [];
+            let runningWageBill = currentWageBill;
+            for (const cand of candidatePool) {
+                if (candidates.length >= need)
+                    break;
+                if (runningWageBill + (cand.wage || 0) > affordableCeiling && candidates.length > 0)
+                    continue;
+                candidates.push(cand);
+                runningWageBill += cand.wage || 0;
+            }
             const toSign = new Set(candidates.map((p) => p.id));
             pool = pool.map((p) => {
                 if (!toSign.has(p.id))
@@ -1209,6 +1256,7 @@ const STATIC_WORLD_DATA = { "clubs": [{ "id": "arsenal", "name": "Arsenal", "cit
 function generateWorld() {
     const w = JSON.parse(JSON.stringify(STATIC_WORLD_DATA));
     w.pendingOffers = [];
+    w.staff = genStaffBatch([], 18);
     return w;
 }
 function generateFixtures(clubIds, divisionId) {
@@ -2419,43 +2467,46 @@ function Pitch({ club, squadPlayers, onAssign, onSetInstruction }) {
                         unavailable ? (player.injuredWeeks > 0 ? " OUT" : " SUSP") : "",
                         tired ? " TIRED" : "")));
             })),
-        openSlot && (React.createElement("div", { className: "mt-3 rounded-lg p-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
-            React.createElement("div", { className: "text-[10px] font-bold mb-2", style: { color: C.sub } },
-                "ASSIGN ",
-                activeSlot?.pos,
-                " \u2014 TAP A PLAYER"),
-            (() => {
-                const available = squadPlayers.filter((p) => !p.injuredWeeks);
-                const natural = available.filter((p) => p.position === activeSlot?.pos).sort((a, b) => b.overall - a.overall);
-                const outOfPos = available.filter((p) => p.position !== activeSlot?.pos).sort((a, b) => b.overall - a.overall);
-                const PlayerRow = (p) => (React.createElement("button", { key: p.id, onClick: () => { onAssign(openSlot, p.id); setOpenSlot(null); }, className: "w-full flex items-center justify-between text-xs px-2 py-1.5 rounded border", style: { borderColor: usedIds.has(p.id) ? C.amber : C.border, backgroundColor: "#FFFFFF" } },
-                    React.createElement("span", { className: "font-semibold" },
-                        p.name,
-                        p.position !== activeSlot?.pos && React.createElement("span", { className: "font-normal", style: { color: C.sub } },
-                            " (",
-                            p.position,
-                            ")")),
-                    React.createElement("span", { style: { color: C.sub } },
-                        "OVR ",
-                        p.overall,
-                        usedIds.has(p.id) ? " · move here" : "")));
-                return (React.createElement("div", { className: "space-y-1 max-h-64 overflow-y-auto" },
-                    natural.map(PlayerRow),
-                    natural.length === 0 && React.createElement("div", { className: "text-xs italic mb-1", style: { color: C.sub } },
-                        "No recognised ",
+        openSlot && (React.createElement("div", { className: "fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4", style: { backgroundColor: "rgba(20,30,22,0.55)" }, onClick: () => setOpenSlot(null) },
+            React.createElement("div", { className: "rounded-lg p-3 border max-w-sm w-full max-h-[80vh] overflow-y-auto", style: { backgroundColor: C.card, borderColor: C.border }, onClick: (e) => e.stopPropagation() },
+                React.createElement("div", { className: "flex items-center justify-between mb-2" },
+                    React.createElement("div", { className: "text-[10px] font-bold", style: { color: C.sub } },
+                        "ASSIGN ",
                         activeSlot?.pos,
-                        " in your squad \u2014 pick an out-of-position player below, or sign one."),
-                    outOfPos.length > 0 && React.createElement("div", { className: "text-[9px] font-bold mt-2 mb-1", style: { color: C.amber } }, "OUT OF POSITION \u2014 WEAKER THERE, BUT PLAYABLE"),
-                    outOfPos.map(PlayerRow),
-                    available.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "No available players \u2014 check for injuries or suspensions.")));
-            })(),
-            activeSlot && activeSlot.pos !== "GK" && SLOT_INSTRUCTIONS[activeSlot.pos]?.length > 1 && (React.createElement("div", { className: "mt-3 pt-3 border-t", style: { borderColor: C.cardAlt } },
-                React.createElement("div", { className: "text-[9px] font-bold mb-1.5", style: { color: C.sub } }, "ROLE FOR THIS SLOT"),
-                React.createElement("div", { className: "flex flex-wrap gap-1.5" }, SLOT_INSTRUCTIONS[activeSlot.pos].map((opt) => (React.createElement(Pill, { key: opt.key, active: (club.slotInstructions?.[openSlot] || (activeSlot.pos === "FW" ? "central" : "balanced")) === opt.key, onClick: () => onSetInstruction(openSlot, opt.key) },
-                    opt.arrow,
-                    " ",
-                    opt.label)))))),
-            React.createElement("button", { onClick: () => setOpenSlot(null), className: "mt-2 text-[10px] font-bold", style: { color: C.sub } }, "Cancel")))));
+                        " \u2014 TAP A PLAYER"),
+                    React.createElement("button", { onClick: () => setOpenSlot(null), style: { color: C.sub } },
+                        React.createElement(Ico, { e: "\u2715", size: 16 }))),
+                (() => {
+                    const available = squadPlayers.filter((p) => !p.injuredWeeks);
+                    const natural = available.filter((p) => p.position === activeSlot?.pos).sort((a, b) => b.overall - a.overall);
+                    const outOfPos = available.filter((p) => p.position !== activeSlot?.pos).sort((a, b) => b.overall - a.overall);
+                    const PlayerRow = (p) => (React.createElement("button", { key: p.id, onClick: () => { onAssign(openSlot, p.id); setOpenSlot(null); }, className: "w-full flex items-center justify-between text-xs px-2 py-1.5 rounded border", style: { borderColor: usedIds.has(p.id) ? C.amber : C.border, backgroundColor: "#FFFFFF" } },
+                        React.createElement("span", { className: "font-semibold" },
+                            p.name,
+                            p.position !== activeSlot?.pos && React.createElement("span", { className: "font-normal", style: { color: C.sub } },
+                                " (",
+                                p.position,
+                                ")")),
+                        React.createElement("span", { style: { color: C.sub } },
+                            "OVR ",
+                            p.overall,
+                            usedIds.has(p.id) ? " · move here" : "")));
+                    return (React.createElement("div", { className: "space-y-1 max-h-64 overflow-y-auto" },
+                        natural.map(PlayerRow),
+                        natural.length === 0 && React.createElement("div", { className: "text-xs italic mb-1", style: { color: C.sub } },
+                            "No recognised ",
+                            activeSlot?.pos,
+                            " in your squad \u2014 pick an out-of-position player below, or sign one."),
+                        outOfPos.length > 0 && React.createElement("div", { className: "text-[9px] font-bold mt-2 mb-1", style: { color: C.amber } }, "OUT OF POSITION \u2014 WEAKER THERE, BUT PLAYABLE"),
+                        outOfPos.map(PlayerRow),
+                        available.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "No available players \u2014 check for injuries or suspensions.")));
+                })(),
+                activeSlot && activeSlot.pos !== "GK" && SLOT_INSTRUCTIONS[activeSlot.pos]?.length > 1 && (React.createElement("div", { className: "mt-3 pt-3 border-t", style: { borderColor: C.cardAlt } },
+                    React.createElement("div", { className: "text-[9px] font-bold mb-1.5", style: { color: C.sub } }, "ROLE FOR THIS SLOT"),
+                    React.createElement("div", { className: "flex flex-wrap gap-1.5" }, SLOT_INSTRUCTIONS[activeSlot.pos].map((opt) => (React.createElement(Pill, { key: opt.key, active: (club.slotInstructions?.[openSlot] || (activeSlot.pos === "FW" ? "central" : "balanced")) === opt.key, onClick: () => onSetInstruction(openSlot, opt.key) },
+                        opt.arrow,
+                        " ",
+                        opt.label)))))))))));
 }
 function ClubDetail({ club, squad, history, clubsById, onBack, onSign, onView, week, viewerClubId }) {
     const [seasonFilter, setSeasonFilter] = useState("all");
@@ -2993,8 +3044,8 @@ function App() {
         const away = clubsById[fixtureOrTie.awayId];
         const homePlayers = playersOfClub(fixtureOrTie.homeId);
         const awayPlayers = playersOfClub(fixtureOrTie.awayId);
-        const homeXI = controlled.includes(home.id) ? xiFromLineup(home, homePlayers) : bestXI(homePlayers, home.formation);
-        const awayXI = controlled.includes(away.id) ? xiFromLineup(away, awayPlayers) : bestXI(awayPlayers, away.formation);
+        const homeXI = applyManagerBonus(controlled.includes(home.id) ? xiFromLineup(home, homePlayers) : bestXI(homePlayers, home.formation), home);
+        const awayXI = applyManagerBonus(controlled.includes(away.id) ? xiFromLineup(away, awayPlayers) : bestXI(awayPlayers, away.formation), away);
         const stamina = {};
         [...homeXI, ...awayXI].forEach((p) => { stamina[p.id] = 100; });
         setActiveMatch({
@@ -3676,8 +3727,8 @@ function App() {
                 away.managerPerf = managersById[away.managerId]?.performanceRating;
                 const homePlayers = players.filter((p) => p.clubId === fx.homeId);
                 const awayPlayers = players.filter((p) => p.clubId === fx.awayId);
-                const homeXI = controlled.includes(fx.homeId) ? xiFromLineup(home, homePlayers) : bestXI(homePlayers, home.formation);
-                const awayXI = controlled.includes(fx.awayId) ? xiFromLineup(away, awayPlayers) : bestXI(awayPlayers, away.formation);
+                const homeXI = applyManagerBonus(controlled.includes(fx.homeId) ? xiFromLineup(home, homePlayers) : bestXI(homePlayers, home.formation), home);
+                const awayXI = applyManagerBonus(controlled.includes(fx.awayId) ? xiFromLineup(away, awayPlayers) : bestXI(awayPlayers, away.formation), away);
                 const sim = simulateFullMatch(home, away, homeXI, awayXI);
                 updatedFxMap[fx.id] = sim;
                 clubs = clubs.map((c) => {
@@ -3840,8 +3891,8 @@ function App() {
         away.managerPerf = managersById[away.managerId]?.performanceRating;
         const homePlayers = players.filter((p) => p.clubId === t.homeId);
         const awayPlayers = players.filter((p) => p.clubId === t.awayId);
-        const homeXI = controlled.includes(t.homeId) ? xiFromLineup(home, homePlayers) : bestXI(homePlayers, home.formation);
-        const awayXI = controlled.includes(t.awayId) ? xiFromLineup(away, awayPlayers) : bestXI(awayPlayers, away.formation);
+        const homeXI = applyManagerBonus(controlled.includes(t.homeId) ? xiFromLineup(home, homePlayers) : bestXI(homePlayers, home.formation), home);
+        const awayXI = applyManagerBonus(controlled.includes(t.awayId) ? xiFromLineup(away, awayPlayers) : bestXI(awayPlayers, away.formation), away);
         const sim = simulateFullMatch(home, away, homeXI, awayXI);
         let winnerId = sim.homeGoals > sim.awayGoals ? t.homeId : sim.awayGoals > sim.homeGoals ? t.awayId : null;
         let penaltyScoreAi = null;
@@ -4213,6 +4264,30 @@ function App() {
                     }
                 }
             }
+            // snapshot every manager's season into their own personal history log — follows the
+            // manager between clubs, not the club itself, and includes the actual league position
+            // finished in, not just the record. Human managers use their own tracked personal stats
+            // (precise even if they took over mid-season); AI managers use their club's season record
+            // as the best available approximation, same honest caveat as before if they joined partway
+            // through — that's a real limitation of not tracking exact hire dates, not a new one.
+            const positionByClub = {};
+            DIVISIONS_SEED.forEach((div) => {
+                const rows = w.clubs.filter((cc) => cc.divisionId === div.id).sort((a, b) => b.pts - a.pts || (b.gf - b.ga) - (a.gf - a.ga));
+                rows.forEach((cc, i) => { positionByClub[cc.id] = { position: i + 1, totalClubs: rows.length, divisionName: div.name }; });
+            });
+            setManagers((mgrs) => mgrs.map((mgr) => {
+                if (!mgr.clubId)
+                    return mgr;
+                const slot = controlled.indexOf(mgr.clubId);
+                const isHuman = slot >= 0;
+                const club = w.clubs.find((cc) => cc.id === mgr.clubId);
+                if (!club)
+                    return mgr;
+                const posInfo = positionByClub[mgr.clubId] || {};
+                const stats = isHuman ? (managerSeasonStats[slot] || { wins: 0, draws: 0, losses: 0, trophies: 0 }) : { wins: club.won, draws: club.drawn, losses: club.lost, trophies: (trophyClubs.includes(mgr.clubId) ? 1 : 0) };
+                const entry = { season, clubId: mgr.clubId, clubName: club.name, divisionName: posInfo.divisionName, position: posInfo.position, totalClubs: posInfo.totalClubs, wins: stats.wins, draws: stats.draws, losses: stats.losses, trophies: stats.trophies };
+                return { ...mgr, seasonHistoryLog: [...(mgr.seasonHistoryLog || []), entry] };
+            }));
             // snapshot each manager's season into their history log, then reset the season counters
             controlled.forEach((clubId, slot) => {
                 const stats = managerSeasonStats[slot] || { wins: 0, draws: 0, losses: 0, trophies: 0 };
@@ -4220,7 +4295,8 @@ function App() {
                     const next = hist.map((arr) => [...arr]);
                     if (!next[slot])
                         next[slot] = [];
-                    next[slot] = [...next[slot], { season, clubId, clubName: clubsById[clubId]?.name, wins: stats.wins, draws: stats.draws, losses: stats.losses, trophies: stats.trophies }];
+                    const posInfo2 = positionByClub[clubId] || {};
+                    next[slot] = [...next[slot], { season, clubId, clubName: clubsById[clubId]?.name, divisionName: posInfo2.divisionName, position: posInfo2.position, totalClubs: posInfo2.totalClubs, wins: stats.wins, draws: stats.draws, losses: stats.losses, trophies: stats.trophies }];
                     return next;
                 });
             });
@@ -4237,7 +4313,8 @@ function App() {
                     seasonHistoryLog: [...(p.seasonHistoryLog || []), { season, clubId: p.clubId, clubName: clubsById[p.clubId]?.name, apps: p.seasonApps || 0, goals: p.seasonGoals || 0, shots: p.seasonShots || 0, saves: p.seasonSaves || 0, assists: p.seasonAssists || 0, goalsConceded: p.seasonGoalsConceded || 0 }],
                     seasonApps: 0, seasonGoals: 0, seasonShots: 0, seasonSaves: 0, seasonAssists: 0, seasonGoalsConceded: 0,
                 } : { ...p, seasonApps: 0, seasonGoals: 0, seasonShots: 0, seasonSaves: 0, seasonAssists: 0, seasonGoalsConceded: 0 };
-                const dev = developPlayer(withSeasonLog, p.clubId ? effectiveTierFromBudget(clubsById[p.clubId]?.startingBudget) : 1);
+                const myCoach = (w.staff || []).find((s) => s.clubId === p.clubId && s.role === "coach");
+                const dev = developPlayer(withSeasonLog, p.clubId ? effectiveTierFromBudget(clubsById[p.clubId]?.startingBudget) : 1, myCoach?.skill);
                 const withPlayerOfSeason = (motmLeader && p.id === motmLeader.id) ? { ...dev, playerOfSeasonCount: (dev.playerOfSeasonCount || 0) + 1 } : dev;
                 // Loan spells end automatically at the season boundary they were due back — no need to
                 // manage the calendar yourself, they just reappear at their parent club next season.
@@ -4292,11 +4369,29 @@ function App() {
             });
             if (academyNews.length)
                 setNews((n) => [...academyNews, ...n].slice(0, 150));
+            // Staff age and retire too — same shape as player retirement, weighted by age — and a
+            // handful of fresh candidates join the market every season, same as the youth intake, so
+            // the pool is worth checking regularly rather than a one-time hiring decision.
+            const staffNews = [];
+            let nextStaff = (w.staff || []).map((s) => {
+                const age = s.age + 1;
+                const retireChance = age >= 68 ? 0.5 : age >= 62 ? 0.22 : age >= 55 ? 0.06 : 0;
+                if (Math.random() < retireChance) {
+                    if (s.clubId)
+                        staffNews.push({ id: uid("n"), text: `${STAFF_ROLES[s.role]?.label} ${s.name} retires from their role at ${clubsById[s.clubId]?.name}.`, clubIds: [s.clubId], week: newWeek, season });
+                    return null;
+                }
+                return { ...s, age };
+            }).filter(Boolean);
+            const newStaffBatch = genStaffBatch(nextStaff, 3);
+            nextStaff = [...nextStaff, ...newStaffBatch];
+            if (staffNews.length)
+                setNews((n) => [...staffNews, ...n].slice(0, 150));
             // AI clubs tidy up their own squads — releasing surplus players, topping up if short,
             // paying a real fee if it's picking up someone's transfer-listed player.
             const { players: balancedPlayers, budgetDeltas } = reconcileAiSquads([...developedPlayers, ...debutBatch, ...academyGraduates], newClubs, controlled);
             const finalClubs = newClubs.map((c) => (budgetDeltas[c.id] ? { ...c, budget: c.budget + budgetDeltas[c.id] } : c));
-            return { ...w, clubs: finalClubs, players: balancedPlayers };
+            return { ...w, clubs: finalClubs, players: balancedPlayers, staff: nextStaff };
         });
         setSeason((s) => s + 1);
         setWeek(1);
@@ -4330,7 +4425,18 @@ function App() {
             const mgr = mgrs.find((m) => m.id === c.managerId);
             if (!mgr)
                 return;
-            const fireChance = (c.boardConfidence ?? 62) < 30 ? 0.035 : 0.006;
+            // League position now genuinely matters, not just confidence — a manager sitting top of
+            // the table stays safe even if the board's unhappy about something else entirely (debt,
+            // an ultimatum, whatever), same as how results actually buy real managers time in real
+            // football. Base rates are also meaningfully lower than before — a full season should see
+            // a modest, believable number of sackings league-wide, not the majority of struggling clubs.
+            const divRows = clubsList.filter((cc) => cc.divisionId === c.divisionId).sort((a, b) => b.pts - a.pts || (b.gf - b.ga) - (a.gf - a.ga));
+            const pos = divRows.findIndex((cc) => cc.id === c.id);
+            const topOfTable = pos >= 0 && pos < 3;
+            const conf = c.boardConfidence ?? 62;
+            let fireChance = conf < 20 ? 0.018 : conf < 35 ? 0.007 : 0.0012;
+            if (topOfTable)
+                fireChance *= 0.12;
             if (Math.random() < fireChance) {
                 newsBatch.push({ id: uid("n"), text: `${mgr.name} is sacked by ${c.name}.`, clubIds: [c.id], week, season });
                 mgrs = mgrs.map((m) => (m.id === mgr.id ? { ...m, clubId: null } : m));
@@ -4430,6 +4536,12 @@ function App() {
             const used = buyer.transferBudgetUsed || 0;
             if (buyer.budget < fee || used + fee > cap)
                 continue;
+            // Same wage-sustainability check as the squad top-up path — affording the fee isn't the
+            // same as being able to actually pay someone every week from here on.
+            const buyerWageBill = newPlayers.filter((p) => p.clubId === buyerId).reduce((s, p) => s + (p.wage || 0), 0);
+            const buyerAffordable = (weeklySponsorship(buyer) + weeklyMerchIncome(buyer)) * 1.4;
+            if (buyerWageBill + (target.wage || 0) > buyerAffordable)
+                continue;
             newClubs = newClubs.map((c) => {
                 if (c.id === buyerId)
                     return { ...c, budget: c.budget - fee, transferBudgetUsed: used + fee };
@@ -4499,10 +4611,13 @@ function App() {
                 }
                 // match fatigue builds up over consecutive starts and only meaningfully recovers with an
                 // actual rest week — separate from in-match stamina (which resets every game), this is
-                // what should eventually force genuine squad rotation over a season.
+                // what should eventually force genuine squad rotation over a season. A good fitness coach
+                // genuinely softens how fast it builds, buying real extra rotation room across a season.
                 if (np.clubId) {
+                    const fitnessCoach = (w.staff || []).find((s) => s.clubId === np.clubId && s.role === "fitness");
+                    const fatigueGain = Math.round(10 * (1 - ((fitnessCoach?.skill || 0) / 100) * 0.35));
                     np = np.lastPlayedWeek === week
-                        ? { ...np, fatigue: clamp((np.fatigue || 0) + 10, 0, 100), consecutiveApps: (np.consecutiveApps || 0) + 1 }
+                        ? { ...np, fatigue: clamp((np.fatigue || 0) + fatigueGain, 0, 100), consecutiveApps: (np.consecutiveApps || 0) + 1 }
                         : { ...np, fatigue: clamp((np.fatigue || 0) - 35, 0, 100), consecutiveApps: 0 };
                 }
                 // sustained low morale leads to a release request — the manager can grant it fee-free or ignore it
@@ -4537,8 +4652,9 @@ function App() {
                 const sponsorship = weeklySponsorship(c);
                 const merch = weeklyMerchIncome(c);
                 const scoutWage = hiredScout && hiredScout.clubId === c.id ? hiredScout.weeklyWage : 0;
+                const staffWages = (w.staff || []).filter((s) => s.clubId === c.id).reduce((sum, s) => sum + s.wageWeekly, 0);
                 const conditionDecay = 0.35 + (c.stadiumTier || 0) * 0.1;
-                return { ...c, budget: c.budget - wages + sponsorship + merch - scoutWage, merchTotalEarned: (c.merchTotalEarned || 0) + merch, stadiumCondition: clamp((c.stadiumCondition ?? 80) - conditionDecay, 20, 100) };
+                return { ...c, budget: c.budget - wages + sponsorship + merch - scoutWage - staffWages, merchTotalEarned: (c.merchTotalEarned || 0) + merch, stadiumCondition: clamp((c.stadiumCondition ?? 80) - conditionDecay, 20, 100) };
             }),
         }));
         // scouting reports refresh every 3 weeks
@@ -4694,6 +4810,35 @@ function App() {
     function allManagerRows(seasonMode) {
         if (!world)
             return [];
+        if (typeof seasonMode === "number") {
+            // A specific past season, built from the per-manager history log — genuinely accurate
+            // now, not derived from club history, so only managers who actually had a job that season
+            // show up at all rather than crediting anyone with results from before they arrived.
+            const rows = [];
+            controlled.forEach((clubId, slot) => {
+                const log = (managerSeasonHistory[slot] || []).find((r) => r.season === seasonMode);
+                if (!log)
+                    return;
+                rows.push({ clubId: log.clubId, key: `human-${slot}`, name: managerNames[slot] || `Manager ${slot + 1}`, clubName: log.clubName, isHuman: true, slot, reputation: managerReputations[slot] ?? 50, wins: log.wins, draws: log.draws, losses: log.losses, trophies: log.trophies, position: log.position, totalClubs: log.totalClubs });
+            });
+            world.managers.forEach((mgr) => {
+                const log = (mgr.seasonHistoryLog || []).find((r) => r.season === seasonMode);
+                if (!log)
+                    return;
+                const divIdx = DIVISIONS_SEED.findIndex((d) => d.id === clubsById[log.clubId]?.divisionId);
+                const estReputation = clamp(40 + (mgr.ability || 50) * 0.5 + (log.trophies || 0) * 10 - divIdx * 3, 5, 99);
+                rows.push({ clubId: log.clubId, key: `ai-${mgr.id}`, name: mgr.name, clubName: log.clubName, isHuman: false, reputation: estReputation, wins: log.wins, draws: log.draws, losses: log.losses, trophies: log.trophies, position: log.position, totalClubs: log.totalClubs });
+            });
+            rows.forEach((row) => { const played = row.wins + row.draws + row.losses; row.winPct = played > 0 ? row.wins / played : 0; row.played = played; });
+            return rows.sort((a, b) => {
+                const aQualified = a.played >= 5, bQualified = b.played >= 5;
+                if (aQualified !== bQualified)
+                    return aQualified ? -1 : 1;
+                if (aQualified && Math.abs(a.winPct - b.winPct) > 0.001)
+                    return b.winPct - a.winPct;
+                return b.reputation - a.reputation || b.trophies - a.trophies || (b.wins - b.losses) - (a.wins - a.losses);
+            });
+        }
         return world.clubs.map((c) => {
             const slot = controlled.indexOf(c.id);
             const isHuman = slot >= 0;
@@ -4765,6 +4910,43 @@ function App() {
     }
     function toggleTransferListed(playerId) {
         setWorld((w) => ({ ...w, players: w.players.map((p) => (p.id === playerId ? { ...p, transferListed: !p.transferListed } : p)) }));
+    }
+    function staffFor(clubId, role) {
+        return world?.staff?.find((s) => s.clubId === clubId && s.role === role);
+    }
+    function applyManagerBonus(xi, club) {
+        // The one thing that's genuinely "the manager" rather than any specific player or specialist
+        // staff member — a small, real edge from tactical know-how, not a dominant factor next to
+        // actual player quality. AI managers use their own ability stat; a human manager's own
+        // reputation stands in for the same thing, since that's what actually tracks their record.
+        const slot = controlled.indexOf(club.id);
+        const isHuman = slot >= 0;
+        const rating = isHuman ? (managerReputations[slot] ?? 50) : (managerFor(club.id)?.ability ?? 50);
+        const factor = 1 + (rating - 50) * 0.0016;
+        if (Math.abs(factor - 1) < 0.001)
+            return xi;
+        return xi.map((p) => ({ ...p, overall: clamp(Math.round(p.overall * factor), 1, 99) }));
+    }
+    function hireStaff(staffId, clubId) {
+        const staff = world.staff.find((s) => s.id === staffId);
+        const club = clubsById[clubId];
+        if (!staff || !club || club.budget < staff.wageWeekly * 4)
+            return;
+        const existing = staffFor(clubId, staff.role);
+        setWorld((w) => ({
+            ...w,
+            staff: w.staff.map((s) => {
+                if (s.id === staffId)
+                    return { ...s, clubId };
+                if (existing && s.id === existing.id)
+                    return { ...s, clubId: null };
+                return s;
+            }),
+        }));
+        setNews((n) => [{ id: uid("n"), text: `${club.name} appoint ${staff.name} as ${STAFF_ROLES[staff.role].label}${existing ? `, replacing ${existing.name}` : ""}.`, clubIds: [clubId], week, season }, ...n].slice(0, 150));
+    }
+    function fireStaff(staffId) {
+        setWorld((w) => ({ ...w, staff: w.staff.map((s) => (s.id === staffId ? { ...s, clubId: null } : s)) }));
     }
     function toggleLoanListed(playerId) {
         setWorld((w) => ({ ...w, players: w.players.map((p) => (p.id === playerId ? { ...p, loanListed: !p.loanListed } : p)) }));
@@ -4888,12 +5070,16 @@ function App() {
         if (!club || club.budget < cost)
             return;
         // A deliberate, real risk rather than a guaranteed shortcut — rushing recovery occasionally
-        // backfires, same spirit as CM's send-for-surgery option.
-        const setback = Math.random() < 0.15;
+        // backfires, same spirit as CM's send-for-surgery option. A good club doctor genuinely
+        // improves these odds and cuts more time, rather than it being pure chance either way.
+        const doctor = staffFor(p.clubId, "doctor");
+        const doctorFactor = (doctor?.skill || 0) / 100;
+        const setback = Math.random() < clamp(0.15 - doctorFactor * 0.1, 0.03, 0.15);
+        const weeksCut = 2 + Math.round(doctorFactor * 2);
         setWorld((w) => ({
             ...w,
             clubs: w.clubs.map((c) => (c.id === club.id ? { ...c, budget: c.budget - cost } : c)),
-            players: w.players.map((pl) => (pl.id === playerId ? { ...pl, injuredWeeks: setback ? pl.injuredWeeks + 1 : Math.max(0, pl.injuredWeeks - 2) } : pl)),
+            players: w.players.map((pl) => (pl.id === playerId ? { ...pl, injuredWeeks: setback ? pl.injuredWeeks + 1 : Math.max(0, pl.injuredWeeks - weeksCut) } : pl)),
         }));
         setNews((n) => [{ id: uid("n"), text: setback ? `⚠️ A rushed recovery setback for ${p.name} at ${club.name} — back injured a little longer.` : `🏥 ${club.name} paid for accelerated treatment on ${p.name}.`, clubIds: [club.id], week, season }, ...n].slice(0, 150));
     }
@@ -5358,6 +5544,7 @@ function App() {
                 const migratedWorld = data.world ? {
                     ...data.world,
                     pendingOffers: data.world.pendingOffers || [],
+                    staff: data.world.staff && data.world.staff.length ? data.world.staff : genStaffBatch([], 18),
                     players: data.world.players.map((p) => {
                         let potential = p.potential;
                         if (potential == null) {
@@ -6801,6 +6988,7 @@ function App() {
                 { key: "fanpopularity", label: "Fan Popularity", desc: "Every club ranked by how their fans feel right now", icon: "📣" },
                 { key: "messages", label: "Messages", desc: "What the board and fans are actually saying about you", icon: "💬" },
                 { key: "jobinfo", label: "Job Information", desc: "Vacant clubs and managers whose position looks shaky", icon: "🧳" },
+                { key: "staff", label: "Backroom Staff", desc: "Hire a coach, doctor, or fitness coach — real effects, not just flavour", icon: "🩺" },
                 { key: "news", label: "News", desc: "Everything happening across the league, filterable by club", icon: "📰" },
                 { key: "scouting", label: "Scouting", desc: hiredScout && hiredScout.clubId === activeClubId ? `${hiredScout.name} — ${SCOUT_SPECIALTY_LABELS[hiredScout.specialty]}` : season < 2 ? "🔒 Unlocks in Season 2" : "Hire a scout to surface transfer targets", icon: "🔎" },
                 { key: "leaderboard", label: "Manager Leaderboard", desc: "Reputation, record, and trophies head-to-head", icon: "🏅" },
@@ -7286,6 +7474,47 @@ function App() {
                             React.createElement("span", { className: "text-[9px] font-bold flex-shrink-0 ml-2 px-2 py-1 rounded", style: { backgroundColor: sec.color, color: "#FFFFFF" } }, canTakeIt ? "APPLY" : sec.label)));
                     })));
                 })())),
+            tab === "staff" && activeClub && world && (React.createElement("div", null,
+                React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "BACKROOM STAFF"),
+                React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Real effects, not flavour \u2014 one hire per role. New candidates join the market most seasons, so it's worth checking back rather than a one-time decision. Staff retire eventually too, same as players."),
+                Object.entries(STAFF_ROLES).map(([roleKey, roleInfo]) => {
+                    const current = staffFor(activeClubId, roleKey);
+                    const candidates = world.staff.filter((s) => s.role === roleKey && !s.clubId).sort((a, b) => b.skill - a.skill);
+                    return (React.createElement("div", { key: roleKey, className: "rounded-lg p-3 mb-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
+                        React.createElement("div", { className: "text-xs font-bold mb-0.5" },
+                            roleInfo.icon,
+                            " ",
+                            roleInfo.label),
+                        React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, roleInfo.effect),
+                        current ? (React.createElement("div", { className: "flex items-center justify-between rounded-lg px-2.5 py-2 border mb-2", style: { backgroundColor: C.cardAlt, borderColor: C.amber } },
+                            React.createElement("span", { className: "text-xs" },
+                                React.createElement("span", { className: "font-bold" }, current.name),
+                                " ",
+                                React.createElement("span", { style: { color: C.sub } },
+                                    "\u00B7 Skill ",
+                                    current.skill,
+                                    " \u00B7 Age ",
+                                    current.age,
+                                    " \u00B7 ",
+                                    formatMoney(current.wageWeekly),
+                                    "/wk")),
+                            React.createElement("button", { onClick: () => fireStaff(current.id), className: "text-[9px] font-bold px-2 py-1 rounded flex-shrink-0", style: { backgroundColor: C.red, color: "#FFFFFF" } }, "Let Go"))) : (React.createElement("div", { className: "text-[10px] italic mb-2", style: { color: C.sub } }, "Nobody in this role right now.")),
+                        React.createElement("div", { className: "space-y-1" },
+                            candidates.slice(0, 5).map((s) => (React.createElement("button", { key: s.id, onClick: () => hireStaff(s.id, activeClubId), disabled: activeClub.budget < s.wageWeekly * 4, className: "w-full flex items-center justify-between text-xs px-2.5 py-1.5 rounded border text-left disabled:opacity-40", style: { backgroundColor: "#FFFFFF", borderColor: C.border } },
+                                React.createElement("span", null,
+                                    React.createElement("span", { className: "font-bold" }, s.name),
+                                    " ",
+                                    React.createElement("span", { style: { color: C.sub } },
+                                        "Skill ",
+                                        s.skill,
+                                        " \u00B7 Age ",
+                                        s.age,
+                                        " \u00B7 ",
+                                        formatMoney(s.wageWeekly),
+                                        "/wk")),
+                                React.createElement("span", { className: "text-[9px] font-bold flex-shrink-0", style: { color: C.green } }, "Hire")))),
+                            candidates.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nobody available for this role right now."))));
+                }))),
             tab === "finance" && activeClub && world && (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } },
                     "FINANCES \u2014 ",
@@ -7662,29 +7891,41 @@ function App() {
                     React.createElement("div", { className: "text-[10px] tracking-widest font-bold", style: { color: C.sub } },
                         "ALL ",
                         world.managers.length,
-                        " MANAGERS \u00B7 RANKED BY WIN %"),
-                    React.createElement("div", { className: "flex gap-1.5" },
-                        React.createElement(Pill, { active: managerLeaderboardSeason === "all", onClick: () => setManagerLeaderboardSeason("all") }, "All Time"),
-                        React.createElement(Pill, { active: managerLeaderboardSeason === "current", onClick: () => setManagerLeaderboardSeason("current") }, "This Season"))),
-                React.createElement("div", { className: "space-y-1" }, allManagerRows(managerLeaderboardSeason).map((row, i) => (React.createElement("button", { key: row.clubId, onClick: () => setViewingManagerClubId(row.clubId), className: "w-full flex items-center justify-between text-left rounded-lg px-3 py-2 text-xs border", style: { backgroundColor: row.isHuman ? C.cardAlt : C.card, borderColor: row.isHuman ? C.amber : C.border } },
-                    React.createElement("span", { className: "flex items-center gap-2" },
-                        React.createElement("span", { className: "w-5 text-right font-bold", style: { color: C.sub } }, i + 1),
-                        React.createElement("span", null,
-                            React.createElement("span", { className: "font-bold" }, row.name),
-                            row.isHuman && React.createElement("span", { className: "text-[9px] font-bold ml-1", style: { color: C.amber } }, "YOU"),
+                        " MANAGERS \u00B7 RANKED BY WIN %")),
+                React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-2" },
+                    React.createElement(Pill, { active: managerLeaderboardSeason === "all", onClick: () => setManagerLeaderboardSeason("all") }, "All Time"),
+                    React.createElement(Pill, { active: managerLeaderboardSeason === "current", onClick: () => setManagerLeaderboardSeason("current") }, "This Season"),
+                    seasonHistory.map((h) => React.createElement(Pill, { key: h.season, active: managerLeaderboardSeason === h.season, onClick: () => setManagerLeaderboardSeason(h.season) },
+                        "Season ",
+                        h.season))),
+                React.createElement("div", { className: "flex items-center justify-end gap-2 text-[8px] font-bold mb-1", style: { color: C.sub } },
+                    React.createElement("span", { style: { width: 20 } }),
+                    React.createElement("span", null, "W-D-L"),
+                    React.createElement("span", null, "Win%"),
+                    typeof managerLeaderboardSeason === "number" && React.createElement("span", null, "Pos"),
+                    React.createElement("span", { style: { color: C.amber } }, "Rep")),
+                React.createElement("div", { className: "space-y-1" },
+                    allManagerRows(managerLeaderboardSeason).map((row, i) => (React.createElement("button", { key: row.key || row.clubId, onClick: () => setViewingManagerClubId(row.clubId), className: "w-full flex items-center justify-between text-left rounded-lg px-3 py-2 text-xs border", style: { backgroundColor: row.isHuman ? C.cardAlt : C.card, borderColor: row.isHuman ? C.amber : C.border } },
+                        React.createElement("span", { className: "flex items-center gap-2" },
+                            React.createElement("span", { className: "w-5 text-right font-bold", style: { color: C.sub } }, i + 1),
+                            React.createElement("span", null,
+                                React.createElement("span", { className: "font-bold" }, row.name),
+                                row.isHuman && React.createElement("span", { className: "text-[9px] font-bold ml-1", style: { color: C.amber } }, "YOU"),
+                                React.createElement("span", { style: { color: C.sub } },
+                                    " \u2014 ",
+                                    row.clubName))),
+                        React.createElement("span", { className: "flex items-center gap-2 flex-shrink-0" },
                             React.createElement("span", { style: { color: C.sub } },
-                                " \u2014 ",
-                                row.clubName))),
-                    React.createElement("span", { className: "flex items-center gap-2 flex-shrink-0" },
-                        React.createElement("span", { style: { color: C.sub } },
-                            row.wins,
-                            "W-",
-                            row.draws,
-                            "D-",
-                            row.losses,
-                            "L"),
-                        React.createElement("span", { className: "font-bold", style: { color: C.green } }, row.played >= 5 ? `${Math.round(row.winPct * 100)}%` : "—"),
-                        React.createElement("span", { className: "font-bold", style: { color: C.amber } }, row.reputation)))))))),
+                                row.wins,
+                                "W-",
+                                row.draws,
+                                "D-",
+                                row.losses,
+                                "L"),
+                            React.createElement("span", { className: "font-bold", style: { color: C.green } }, row.played >= 5 ? `${Math.round(row.winPct * 100)}%` : "—"),
+                            typeof managerLeaderboardSeason === "number" && React.createElement("span", { style: { color: C.sub } }, row.position ? `${row.position}/${row.totalClubs}` : "—"),
+                            React.createElement("span", { className: "font-bold", style: { color: C.amber } }, row.reputation))))),
+                    typeof managerLeaderboardSeason === "number" && allManagerRows(managerLeaderboardSeason).length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "No records for that season.")))),
             tab === "guide" && guideContent,
             tab === "news" && world && (React.createElement("div", null,
                 React.createElement("div", { className: "flex items-center justify-between mb-2 flex-wrap gap-2" },
@@ -7820,8 +8061,13 @@ function App() {
             const isHuman = slot >= 0;
             const mgr = isHuman ? null : managerFor(viewingManagerClubId);
             const name = isHuman ? (managerNames[slot] || `Manager ${slot + 1}`) : (mgr?.name || "Vacant");
-            const rows = isHuman ? (managerSeasonHistory[slot] || []) : deriveAiClubSeasonHistory(viewingManagerClubId);
+            const rows = isHuman ? (managerSeasonHistory[slot] || []) : (mgr?.seasonHistoryLog || []);
             const liveStats = isHuman ? (managerSeasonStats[slot] || { wins: 0, draws: 0, losses: 0, trophies: 0 }) : null;
+            const reputation = isHuman ? (managerReputations[slot] ?? 50) : (() => {
+                const trophies = (club.leagueTitles?.length || 0) + (club.cupTitlesWon || 0);
+                const divIdx = DIVISIONS_SEED.findIndex((d) => d.id === club.divisionId);
+                return clamp(40 + (mgr?.ability || 50) * 0.5 + trophies * 10 - divIdx * 3, 5, 99);
+            })();
             return (React.createElement("div", { className: "fixed inset-0 z-50 flex items-center justify-center p-4", style: { backgroundColor: "rgba(20,30,22,0.55)" }, onClick: () => setViewingManagerClubId(null) },
                 React.createElement("div", { className: "rounded-lg p-5 max-w-sm w-full border max-h-[80vh] overflow-y-auto", style: { backgroundColor: C.card, borderColor: C.border }, onClick: (e) => e.stopPropagation() },
                     React.createElement("div", { className: "flex items-start justify-between mb-1" },
@@ -7834,29 +8080,36 @@ function App() {
                                 club.name)),
                         React.createElement("button", { onClick: () => setViewingManagerClubId(null), style: { color: C.sub } },
                             React.createElement(Ico, { e: "\u2715", size: 18 }))),
-                    mgr && (React.createElement("div", { className: "grid grid-cols-2 gap-2 mt-2 mb-1" },
-                        React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
+                    React.createElement("div", { className: "grid grid-cols-3 gap-2 mt-2 mb-1" },
+                        mgr && React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
                             React.createElement("div", { className: "text-sm font-black" }, mgr.ability),
-                            React.createElement("div", { className: "text-[8px]", style: { color: C.sub } }, "MANAGERIAL ABILITY")),
-                        React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
+                            React.createElement("div", { className: "text-[8px]", style: { color: C.sub } }, "ABILITY")),
+                        mgr && React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
                             React.createElement("div", { className: "text-sm font-black" },
                                 mgr.performanceRating,
                                 React.createElement("span", { style: { color: C.sub, fontWeight: 400 } },
                                     "/",
                                     managerPerformanceCap(mgr.ability))),
-                            React.createElement("div", { className: "text-[8px]", style: { color: C.sub } }, "PERFORMANCE (CAPPED)")))),
+                            React.createElement("div", { className: "text-[8px]", style: { color: C.sub } }, "PERFORMANCE")),
+                        React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
+                            React.createElement("div", { className: "text-sm font-black", style: { color: C.amber } }, Math.round(reputation)),
+                            React.createElement("div", { className: "text-[8px]", style: { color: C.sub } }, "REPUTATION"))),
+                    React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "Reputation is the number shown on the leaderboard \u2014 it follows a manager between clubs, built from trophies and the level they've managed at, and is what other clubs judge them on when a job comes open."),
                     React.createElement("div", { className: "text-[10px] tracking-widest font-bold mt-3 mb-2", style: { color: C.sub } }, "SEASON BY SEASON"),
                     rows.length === 0 && !liveStats ? (React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "No completed seasons on record yet.")) : (React.createElement("div", { className: "rounded-lg border overflow-hidden", style: { borderColor: C.border } },
-                        React.createElement("div", { className: "grid grid-cols-5 gap-1 px-2 py-1.5 text-[9px] font-bold", style: { backgroundColor: C.cardAlt, color: C.sub } },
-                            React.createElement("span", null, "Season"),
-                            React.createElement("span", { className: "col-span-2" }, "Record"),
+                        React.createElement("div", { className: "grid grid-cols-6 gap-1 px-2 py-1.5 text-[9px] font-bold", style: { backgroundColor: C.cardAlt, color: C.sub } },
+                            React.createElement("span", null, "S"),
+                            React.createElement("span", null, "Club"),
+                            React.createElement("span", null, "Record"),
                             React.createElement("span", { className: "text-center" }, "Win%"),
+                            React.createElement("span", { className: "text-center" }, "Pos"),
                             React.createElement("span", { className: "text-center" }, "\uD83C\uDFC6")),
                         [...rows].reverse().map((row, i) => {
                             const played = row.wins + row.draws + row.losses;
-                            return (React.createElement("div", { key: i, className: "grid grid-cols-5 gap-1 px-2 py-1.5 text-[10px] border-t", style: { borderColor: C.cardAlt } },
+                            return (React.createElement("div", { key: i, className: "grid grid-cols-6 gap-1 px-2 py-1.5 text-[10px] border-t items-center", style: { borderColor: C.cardAlt } },
                                 React.createElement("span", null, row.season),
-                                React.createElement("span", { className: "col-span-2" },
+                                React.createElement("span", { className: "truncate", style: { fontSize: 9 } }, row.clubName || "—"),
+                                React.createElement("span", { style: { fontSize: 9 } },
                                     row.wins,
                                     "W-",
                                     row.draws,
@@ -7866,6 +8119,7 @@ function App() {
                                 React.createElement("span", { className: "text-center" },
                                     played ? Math.round((row.wins / played) * 100) : 0,
                                     "%"),
+                                React.createElement("span", { className: "text-center", style: { fontSize: 9 } }, row.position ? `${row.position}/${row.totalClubs}` : "—"),
                                 React.createElement("span", { className: "text-center" }, row.trophies || 0)));
                         }),
                         isHuman && (React.createElement("div", { className: "grid grid-cols-5 gap-1 px-2 py-1.5 text-[10px] border-t font-bold", style: { borderColor: C.cardAlt, backgroundColor: C.cardAlt } },
