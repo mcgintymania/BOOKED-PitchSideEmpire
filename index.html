@@ -325,6 +325,7 @@ table{border-collapse:collapse;}
   .lg\:h-\[300px\]{height:300px;}
   .lg\:mt-1\.5{margin-top:0.375rem;}
 }
+.max-h-72{max-height:18rem;}
 
 </style>
 </head>
@@ -485,6 +486,23 @@ const RANDOM_NEGATIVE_EVENTS = [
     "Ticket pricing complaints go viral among supporters.",
     "An embarrassing moment from the last match does the rounds online.",
     "A former player criticises the club publicly, drawing unwanted attention.",
+];
+// Squad-internal, not public — these affect one player's morale directly rather than the
+// club's public fan popularity, the difference between what happens in the papers and what
+// happens in the dressing room.
+const LOCKERROOM_POSITIVE_EVENTS = [
+    "{player} has been mentoring one of the younger squad members — good habits rubbing off.",
+    "{player} organised a team night out after training — spirits are high.",
+    "{player} was praised by teammates for their attitude in a tough training session.",
+    "A senior pro had a quiet word of encouragement with {player} — it seems to have landed.",
+    "{player} has been the heartbeat of the dressing room this week.",
+];
+const LOCKERROOM_NEGATIVE_EVENTS = [
+    "{player} was involved in a heated exchange with a teammate at training.",
+    "{player} has been sulking over a lack of game time, according to those inside the camp.",
+    "{player} clashed with a coach during a training drill.",
+    "There are whispers {player} feels overlooked in the dressing room pecking order.",
+    "{player} was seen arguing with a teammate after a poor training session.",
 ];
 const FORMATION_KEYS = Object.keys(FORMATIONS);
 // Weighted toward mild weather — sunny/cloudy most weeks, rain fairly often, wind/snow rare.
@@ -657,9 +675,13 @@ const CUP_DEFS = [
     { key: "emerging", name: "Emerging Cup", divisionId: "l2" },
     { key: "sunday", name: "Sunday Cup", divisionId: "sunday" },
 ];
-function cupNameFor(cupKey) { if (cupKey === "empire")
-    return "Empire Cup"; if (cupKey === "playoff")
-    return "promotion/relegation playoff"; return (CUP_DEFS.find((d) => d.key === cupKey)?.name || "Cup"); }
+function cupNameFor(cupKey) {
+    if (cupKey === "empire")
+        return "Empire Cup";
+    if (cupKey === "playoff")
+        return "promotion/relegation playoff";
+    return (CUP_DEFS.find((d) => d.key === cupKey)?.name || "Cup");
+}
 function leaguePrizeMoney(divIdx, pos, totalClubs) {
     const divisionMultiplier = [3, 2, 1.4, 1, 0.6][divIdx] ?? 0.6;
     const scale = DIVISION_PRIZE_SCALE[divIdx] ?? 1;
@@ -1586,10 +1608,12 @@ function formationBias(formation) {
 function unionPlayers(a, b) {
     const ids = new Set(a.map((p) => p.id));
     const merged = [...a];
-    b.forEach((p) => { if (!ids.has(p.id)) {
-        merged.push(p);
-        ids.add(p.id);
-    } });
+    b.forEach((p) => {
+        if (!ids.has(p.id)) {
+            merged.push(p);
+            ids.add(p.id);
+        }
+    });
     return merged;
 }
 function reformatXI(currentXI, bench, newFormation) {
@@ -1731,14 +1755,26 @@ function simulateFullMatch(homeClub, awayClub, homeXI, awayXI) {
     const homeGoalsN = poissonish(lambdaHome), awayGoalsN = poissonish(lambdaAway);
     const events = [];
     const shotCounts = {}, saveCounts = {}, assistCounts = {}, concededCounts = {};
-    function bumpShot(id) { if (!id)
-        return; shotCounts[id] = (shotCounts[id] || 0) + 1; }
-    function bumpSave(id) { if (!id)
-        return; saveCounts[id] = (saveCounts[id] || 0) + 1; }
-    function bumpAssist(id) { if (!id)
-        return; assistCounts[id] = (assistCounts[id] || 0) + 1; }
-    function bumpConceded(id) { if (!id)
-        return; concededCounts[id] = (concededCounts[id] || 0) + 1; }
+    function bumpShot(id) {
+        if (!id)
+            return;
+        shotCounts[id] = (shotCounts[id] || 0) + 1;
+    }
+    function bumpSave(id) {
+        if (!id)
+            return;
+        saveCounts[id] = (saveCounts[id] || 0) + 1;
+    }
+    function bumpAssist(id) {
+        if (!id)
+            return;
+        assistCounts[id] = (assistCounts[id] || 0) + 1;
+    }
+    function bumpConceded(id) {
+        if (!id)
+            return;
+        concededCounts[id] = (concededCounts[id] || 0) + 1;
+    }
     for (let i = 0; i < homeGoalsN; i++) {
         const scorer = pickScorer(homeXI);
         const assister = pickAssister(homeXI, scorer?.id);
@@ -1784,8 +1820,10 @@ function simulateFullMatch(homeClub, awayClub, homeXI, awayXI) {
     }
     events.sort((a, b) => a.minute - b.minute);
     const injuries = [];
-    [...homeXI, ...awayXI].forEach((p) => { if (Math.random() < 0.0025)
-        injuries.push({ playerId: p.id, ...rollInjury() }); });
+    [...homeXI, ...awayXI].forEach((p) => {
+        if (Math.random() < 0.0025)
+            injuries.push({ playerId: p.id, ...rollInjury() });
+    });
     const cards = [];
     const awayPress = pressingCardMultiplier(awayClub.pressing), homePress = pressingCardMultiplier(homeClub.pressing);
     for (let i = 0; i < 6; i++) {
@@ -1842,13 +1880,74 @@ function livePlayerRating(playerId, isGK, goalsFor, statBox, stamina) {
         rating -= ((40 - st) / 40) * 1.2;
     return clamp(rating, 3.0, 10.0);
 }
+const COMMENTARY_ATTACKING = [
+    "{team} are pressing forward, looking dangerous down the flank.",
+    "A neat passing move from {team} opens things up.",
+    "{team} win a corner after a deflected effort.",
+    "Good build-up play from {team} in the final third.",
+    "{team} are camped in the opposition half right now.",
+    "A dangerous cross comes in from {team}, but it's cleared.",
+];
+const COMMENTARY_NEUTRAL = [
+    "A quiet spell as both sides probe for an opening.",
+    "Play is scrappy in midfield, neither side settling.",
+    "The pace of the game has dropped a little.",
+    "A tactical foul breaks up the rhythm here.",
+    "Both teams reorganising after that passage of play.",
+];
+const COMMENTARY_DEFENSIVE = [
+    "A last-ditch tackle snuffs out the danger for {team}.",
+    "{team}'s defence standing firm under pressure.",
+    "The goalkeeper claims a routine cross comfortably.",
+    "{team} clear their lines under pressure.",
+];
+function commentaryLine(pool, teamName) {
+    const line = choice(pool);
+    return line.replace("{team}", teamName);
+}
+function generateTickCommentary(seg, home, away, ballPosition) {
+    // Real events always take priority — a goal or card is never buried under flavour text.
+    const lines = [];
+    seg.events.forEach((e) => {
+        if (e.kind === "goal") {
+            const teamName = e.teamId === home.id ? home.name : away.name;
+            lines.push({ minute: e.minute, text: e.viaPenalty ? `⚽ PENALTY SCORED! ${e.scorerName} sends the keeper the wrong way for ${teamName}!` : `⚽ GOAL! ${e.scorerName} scores for ${teamName}!${e.assistName ? ` Assisted by ${e.assistName}.` : ""}`, important: true });
+        }
+        else if (e.kind === "penalty-miss") {
+            const teamName = e.teamId === home.id ? home.name : away.name;
+            lines.push({ minute: e.minute, text: `❌ PENALTY MISSED! ${e.takerName} can't convert for ${teamName} — huge let-off!`, important: true });
+        }
+    });
+    (seg.cardEvents || []).forEach((ce) => {
+        const teamName = ce.teamId === home.id ? home.name : away.name;
+        lines.push({ minute: ce.minute || 0, text: `${ce.type === "red" ? "🟥" : "🟨"} ${ce.playerName || "A player"} is booked for ${teamName}.`, important: true });
+    });
+    // Flavour commentary for quieter ticks — genuinely tied to where the ball actually is, not
+    // random filler, so it reads as commentary on this match rather than generic noise.
+    if (lines.length === 0 && Math.random() < 0.6) {
+        const attackingHome = ballPosition > 25;
+        const attackingAway = ballPosition < -25;
+        if (attackingHome)
+            lines.push({ minute: null, text: commentaryLine(COMMENTARY_ATTACKING, home.name) });
+        else if (attackingAway)
+            lines.push({ minute: null, text: commentaryLine(COMMENTARY_ATTACKING, away.name) });
+        else if (Math.random() < 0.5)
+            lines.push({ minute: null, text: commentaryLine(COMMENTARY_NEUTRAL, null) });
+        else
+            lines.push({ minute: null, text: commentaryLine(COMMENTARY_DEFENSIVE, Math.random() < 0.5 ? home.name : away.name) });
+    }
+    return lines;
+}
 function simulateSegment(homeClub, awayClub, homeXI, awayXI, fromMin, toMin) {
     const hb = formationBias(homeClub.formation), ab = formationBias(awayClub.formation);
     const ht = tempoBias(homeClub.tempo), at = tempoBias(awayClub.tempo);
     const hCap = captainStrengthMult(homeClub, homeXI) * managerStrengthMult(homeClub.managerPerf), aCap = captainStrengthMult(awayClub, awayXI) * managerStrengthMult(awayClub.managerPerf);
-    const hs = teamStrength(homeXI) * 1.1 * moraleMult(homeXI) * hb.atk * ht.atk * hCap;
-    const as = teamStrength(awayXI) * moraleMult(awayXI) * ab.atk * at.atk * aCap;
-    const hDef = teamStrength(homeXI) * hb.def * ht.def * hCap, aDef = teamStrength(awayXI) * ab.def * at.def * aCap;
+    // Team talks and manager shout-outs apply a temporary, real multiplier here — genuinely
+    // affecting goal threat and solidity for a stretch of the match, not just cosmetic.
+    const hTalk = homeClub.teamTalkMult || 1, aTalk = awayClub.teamTalkMult || 1;
+    const hs = teamStrength(homeXI) * 1.1 * moraleMult(homeXI) * hb.atk * ht.atk * hCap * hTalk;
+    const as = teamStrength(awayXI) * moraleMult(awayXI) * ab.atk * at.atk * aCap * aTalk;
+    const hDef = teamStrength(homeXI) * hb.def * ht.def * hCap * hTalk, aDef = teamStrength(awayXI) * ab.def * at.def * aCap * aTalk;
     const span = (toMin - fromMin) / 90;
     // stamina drain, injury chance, and card chance below were tuned assuming ~15-minute
     // segments (6 per match) — scale them to whatever window this call actually covers,
@@ -1858,9 +1957,13 @@ function simulateSegment(homeClub, awayClub, homeXI, awayXI, fromMin, toMin) {
     const lambdaAway = clamp(1.05 * (as / ((as + hDef) / 2 || 1)), 0.2, 3.8) * span;
     const events = [];
     const statDelta = {};
-    function bump(id, key) { if (!id)
-        return; if (!statDelta[id])
-        statDelta[id] = { shots: 0, saves: 0, assists: 0, conceded: 0 }; statDelta[id][key] += 1; }
+    function bump(id, key) {
+        if (!id)
+            return;
+        if (!statDelta[id])
+            statDelta[id] = { shots: 0, saves: 0, assists: 0, conceded: 0 };
+        statDelta[id][key] += 1;
+    }
     const hg = poissonish(lambdaHome), ag = poissonish(lambdaAway);
     for (let i = 0; i < hg; i++) {
         const scorer = pickScorer(homeXI);
@@ -1914,13 +2017,56 @@ function simulateSegment(homeClub, awayClub, homeXI, awayXI, fromMin, toMin) {
                 bump(gk.id, "saves");
         }
     }
+    // Penalties are a real, distinct moment with their own much higher conversion chance — not
+    // just baked into the general shot volume — and a designated penalty taker genuinely
+    // improves the odds, same spirit as the set-piece taker bonus already applied to their stats.
+    const penaltyChanceHome = clamp(0.012 * (hs / ((hs + aDef) / 2 || 1)), 0.003, 0.035) * span;
+    const penaltyChanceAway = clamp(0.012 * (as / ((as + hDef) / 2 || 1)), 0.003, 0.035) * span;
+    if (Math.random() < penaltyChanceHome) {
+        const designated = homeClub.setPieceTakers?.penalty && homeXI.find((p) => p.id === homeClub.setPieceTakers.penalty);
+        const taker = designated || [...homeXI].filter((p) => p.position !== "GK").sort((a, b) => b.shooting - a.shooting)[0];
+        const convertChance = clamp(0.68 + ((taker?.shooting || 60) - 60) * 0.004, 0.5, 0.9);
+        const scored = Math.random() < convertChance;
+        const minute = randInt(fromMin + 1, toMin);
+        if (scored) {
+            const awayGk = awayXI.find((p) => p.position === "GK");
+            events.push({ minute, teamId: homeClub.id, scorerId: taker?.id, scorerName: taker?.name || "Unknown", assistId: null, assistName: null, kind: "goal", viaPenalty: true });
+            if (taker)
+                bump(taker.id, "shots");
+            if (awayGk)
+                bump(awayGk.id, "conceded");
+        }
+        else {
+            events.push({ minute, kind: "penalty-miss", teamId: homeClub.id, takerName: taker?.name || "Unknown" });
+        }
+    }
+    if (Math.random() < penaltyChanceAway) {
+        const designated = awayClub.setPieceTakers?.penalty && awayXI.find((p) => p.id === awayClub.setPieceTakers.penalty);
+        const taker = designated || [...awayXI].filter((p) => p.position !== "GK").sort((a, b) => b.shooting - a.shooting)[0];
+        const convertChance = clamp(0.68 + ((taker?.shooting || 60) - 60) * 0.004, 0.5, 0.9);
+        const scored = Math.random() < convertChance;
+        const minute = randInt(fromMin + 1, toMin);
+        if (scored) {
+            const homeGk = homeXI.find((p) => p.position === "GK");
+            events.push({ minute, teamId: awayClub.id, scorerId: taker?.id, scorerName: taker?.name || "Unknown", assistId: null, assistName: null, kind: "goal", viaPenalty: true });
+            if (taker)
+                bump(taker.id, "shots");
+            if (homeGk)
+                bump(homeGk.id, "conceded");
+        }
+        else {
+            events.push({ minute, kind: "penalty-miss", teamId: awayClub.id, takerName: taker?.name || "Unknown" });
+        }
+    }
     const awayPress = pressingStaminaMultiplier(awayClub.pressing), homePress = pressingStaminaMultiplier(homeClub.pressing);
     const staminaDelta = {};
     homeXI.forEach((p) => { staminaDelta[p.id] = staminaDrain(p.position, p.physical) * awayPress * spanFactor; });
     awayXI.forEach((p) => { staminaDelta[p.id] = staminaDrain(p.position, p.physical) * homePress * spanFactor; });
     const injured = [];
-    [...homeXI, ...awayXI].forEach((p) => { if (Math.random() < 0.0004 * spanFactor)
-        injured.push(p); });
+    [...homeXI, ...awayXI].forEach((p) => {
+        if (Math.random() < 0.0004 * spanFactor)
+            injured.push(p);
+    });
     const cardEvents = [];
     const hc = rollCardEvent(homeXI, pressingCardMultiplier(awayClub.pressing) * spanFactor);
     if (hc)
@@ -2290,7 +2436,7 @@ function StatBar({ label, value }) {
         React.createElement("div", { className: "h-1.5 rounded-full overflow-hidden", style: { backgroundColor: C.cardAlt } },
             React.createElement("div", { className: "h-full", style: { width: `${value}%`, background: `linear-gradient(90deg, ${C.green}, ${C.amber})` } }))));
 }
-function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosition, homeName, awayName, secondHalf, minute, reduceMotion }) {
+function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosition, homeName, awayName, secondHalf, minute, reduceMotion, commentary }) {
     // Real formation shape, own half only — this is the version that actually matched the Squad
     // setup screen and didn't collide. Teams swap ends at half-time, same as a real match.
     function slotDots(xi, formation, onRight) {
@@ -2344,17 +2490,23 @@ function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosi
         return { ...d, x, y };
     }
     let ballTop0 = 50, bestDist0 = Infinity;
-    [...homeDots, ...awayDots].forEach((d) => { const dist = Math.abs(d.x - ballLeft); if (dist < bestDist0) {
-        bestDist0 = dist;
-        ballTop0 = d.y;
-    } });
+    [...homeDots, ...awayDots].forEach((d) => {
+        const dist = Math.abs(d.x - ballLeft);
+        if (dist < bestDist0) {
+            bestDist0 = dist;
+            ballTop0 = d.y;
+        }
+    });
     const allDots = [...homeDots, ...awayDots].map(wobbled);
     let ballTop = 50, nearestPlayer = null, bestDist = Infinity;
-    allDots.forEach((d) => { const dist = Math.abs(d.x - ballLeft); if (dist < bestDist) {
-        bestDist = dist;
-        ballTop = d.y;
-        nearestPlayer = d;
-    } });
+    allDots.forEach((d) => {
+        const dist = Math.abs(d.x - ballLeft);
+        if (dist < bestDist) {
+            bestDist = dist;
+            ballTop = d.y;
+            nearestPlayer = d;
+        }
+    });
     return (React.createElement("div", { className: "rounded-lg overflow-hidden border", style: { backgroundColor: "#2E7D4F", borderColor: C.border } },
         React.createElement("div", { className: "relative", style: { height: 300 } },
             React.createElement("div", { className: "absolute inset-y-0", style: { left: "50%", borderLeft: "2px solid rgba(255,255,255,0.35)" } }),
@@ -2365,9 +2517,7 @@ function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosi
                 React.createElement("div", { className: "rounded-full flex items-center justify-center text-[8px] font-black", style: { width: 17, height: 17, backgroundColor: d.team === "home" ? C.green : C.amber, border: "1.5px solid #FFFFFF", color: "#FFFFFF" } }, d.player.jerseyNumber ?? ""),
                 React.createElement("div", { className: "text-[7px] font-bold text-white mt-0.5 whitespace-nowrap", style: { textShadow: "0 0 2px rgba(0,0,0,0.8)" } }, d.player.name.split(" ").slice(-1)[0])))),
             React.createElement("div", { style: { position: "absolute", top: `${ballTop}%`, left: `${ballLeft}%`, transform: "translate(-50%, -140%)", transition: "left 1.2s linear, top 1.2s linear", fontSize: 16, zIndex: 10 } }, "\u26BD")),
-        nearestPlayer && (React.createElement("div", { className: "text-center py-1 text-[10px] font-bold", style: { backgroundColor: "rgba(0,0,0,0.35)", color: nearestPlayer.team === "home" ? "#7FD99A" : C.amber } },
-            "\u26BD ",
-            nearestPlayer.player.name)),
+        nearestPlayer && (React.createElement("div", { className: "py-1.5 px-2 text-[10px] font-bold text-center", style: { backgroundColor: "rgba(0,0,0,0.35)", color: "#FFFFFF", minHeight: 20 } }, commentary && commentary[0] ? commentary[0].text : `⚽ ${nearestPlayer.player.name}`)),
         React.createElement("div", { className: "flex items-center justify-between px-3 py-1.5 text-[9px] font-bold", style: { backgroundColor: "rgba(0,0,0,0.2)", color: "#FFFFFF" } },
             React.createElement("span", null,
                 React.createElement("span", { className: "inline-block rounded-full mr-1", style: { width: 8, height: 8, backgroundColor: C.green } }),
@@ -2674,8 +2824,7 @@ function ClubDetail({ club, squad, history, clubsById, onBack, onSign, onView, w
                     ? React.createElement("span", { className: "text-[9px]", style: { color: C.sub } },
                         "Not interested (",
                         p.transferCooldownUntil - week,
-                        "wk)")
-                    : React.createElement("button", { onClick: () => onSign(p), className: "text-[9px] font-bold px-2 py-1 rounded", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "Approach"))));
+                        "wk)") : React.createElement("button", { onClick: () => onSign(p), className: "text-[9px] font-bold px-2 py-1 rounded", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "Approach"))));
         })),
         React.createElement("div", { className: "flex items-center justify-between mb-1.5" },
             React.createElement("div", { className: "text-[10px] tracking-widest font-bold", style: { color: C.sub } }, "RECENT MATCHES"),
@@ -2728,6 +2877,24 @@ function App() {
     const [controlled, setControlled] = useState([]);
     const [activeIdx, setActiveIdx] = useState(0);
     const [tab, setTab] = useState("play");
+    useEffect(() => {
+        // This whole app is one page with sections shown/hidden by state, not real browser
+        // navigation — so switching tabs or screens never naturally resets scroll position the
+        // way a real page load would. Covering both scroll properties for older browsers, and —
+        // since this is deployed as a full-page iframe embed — also reaching up to reset the
+        // parent page's own scroll if the embed is same-origin and actually allows it. Wrapped
+        // safely: a cross-origin embed would throw here, and this must never break the game
+        // itself over a scroll position.
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+        try {
+            if (window.parent && window.parent !== window) {
+                window.parent.scrollTo(0, 0);
+            }
+        }
+        catch (e) { }
+    }, [tab, phase]);
     const [news, setNews] = useState([]);
     const [boardFanMessages, setBoardFanMessages] = useState([]);
     const [newsFilter, setNewsFilter] = useState("all");
@@ -2905,10 +3072,13 @@ function App() {
             Object.keys(byPos).forEach((k) => byPos[k].sort((a, b) => b.overall - a.overall));
             const used = new Set();
             const hypotheticalXi = [];
-            slots.forEach((slot) => { const pool = byPos[slot.pos].filter((p) => !used.has(p.id)); if (pool[0]) {
-                hypotheticalXi.push(pool[0]);
-                used.add(pool[0].id);
-            } });
+            slots.forEach((slot) => {
+                const pool = byPos[slot.pos].filter((p) => !used.has(p.id));
+                if (pool[0]) {
+                    hypotheticalXi.push(pool[0]);
+                    used.add(pool[0].id);
+                }
+            });
             const startingXiAvg = hypotheticalXi.length ? Math.round(hypotheticalXi.reduce((s, p) => s + p.overall, 0) / hypotheticalXi.length) : 0;
             const startingBestOverall = squad.length ? Math.max(...squad.map((p) => p.overall)) : 0;
             return { ...c, formation: null, lineup: {}, managerId: null, startingXiAvg, startingBestOverall };
@@ -3194,8 +3364,8 @@ function App() {
         setActiveMatch((m) => {
             if (!m)
                 return m;
-            const home = { ...clubsById[m.homeId], formation: m.homeFormation || clubsById[m.homeId].formation, tempo: m.homeTempo, pressing: m.homePressing, managerPerf: managerFor(m.homeId)?.performanceRating };
-            const away = { ...clubsById[m.awayId], formation: m.awayFormation || clubsById[m.awayId].formation, tempo: m.awayTempo, pressing: m.awayPressing, managerPerf: managerFor(m.awayId)?.performanceRating };
+            const home = { ...clubsById[m.homeId], formation: m.homeFormation || clubsById[m.homeId].formation, tempo: m.homeTempo, pressing: m.homePressing, managerPerf: managerFor(m.homeId)?.performanceRating, teamTalkMult: m.homeTeamTalkMult || 1 };
+            const away = { ...clubsById[m.awayId], formation: m.awayFormation || clubsById[m.awayId].formation, tempo: m.awayTempo, pressing: m.awayPressing, managerPerf: managerFor(m.awayId)?.performanceRating, teamTalkMult: m.awayTeamTalkMult || 1 };
             const to = Math.min(90, m.minute + mins);
             const seg = simulateSegment(home, away, m.homeXI, m.awayXI, m.minute, to);
             const homeInjured = seg.injured.filter((p) => m.homeXI.some((x) => x.id === p.id));
@@ -3234,6 +3404,8 @@ function App() {
             ballPosition = clamp(ballPosition, -100, 100);
             if (goalThisTick)
                 ballPosition = goalThisTick.teamId === m.homeId ? 99 : -99;
+            const newCommentary = generateTickCommentary(seg, home, away, ballPosition);
+            const commentary = [...newCommentary.reverse(), ...(m.commentary || [])].slice(0, 40);
             // possession — a probabilistic share each tick based on the same pressure signal,
             // damped so it stays in a believable range rather than swinging to extremes
             const homeShare = clamp(0.5 + (seg.pressureBias || 0) * 0.15 + netShotSignal * 0.02, 0.3, 0.7);
@@ -3262,7 +3434,7 @@ function App() {
                 cardPenalties: awayCards.cardPenalties, matchCards: awayCards.matchCards,
                 injuries: awayRes.injuries, atHalftime: reachedHalf,
                 running: (reachedHalf || reachedFull) ? false : m.running,
-                playerStats, stamina, ballPosition, homePossession, awayPossession, penaltyShootout,
+                playerStats, stamina, ballPosition, homePossession, awayPossession, penaltyShootout, commentary,
             };
         });
     }
@@ -3325,6 +3497,68 @@ function App() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeMatch?.events]);
     function continueFromHalftime() { setActiveMatch((m) => (m ? { ...m, atHalftime: false, running: true, ballPosition: 0 } : m)); setSubPanel(null); }
+    function giveTeamTalk(side, tone) {
+        setActiveMatch((m) => {
+            if (!m)
+                return m;
+            // A genuine gamble, not a guaranteed boost — Calm is safe and small, Rousing swings
+            // hardest in both directions, Demanding sits in between. Right tone at the right
+            // moment matters; there's no single correct choice every time.
+            const roll = Math.random();
+            let mult = 1, outcome = "";
+            if (tone === "calm") {
+                mult = 1.03;
+                outcome = "A measured word at the break — steady as she goes.";
+            }
+            else if (tone === "rousing") {
+                if (roll < 0.55) {
+                    mult = 1.14;
+                    outcome = "That's lit a fire under them — they come out flying!";
+                }
+                else {
+                    mult = 0.93;
+                    outcome = "It didn't land — a couple of players look rattled, not fired up.";
+                }
+            }
+            else if (tone === "demanding") {
+                if (roll < 0.5) {
+                    mult = 1.08;
+                    outcome = "Message received — heads down, focus sharpened.";
+                }
+                else {
+                    mult = 0.96;
+                    outcome = "They've gone quiet on you — that landed harder than intended.";
+                }
+            }
+            const key = side === "home" ? "homeTeamTalkMult" : "awayTeamTalkMult";
+            const givenKey = side === "home" ? "homeTeamTalkGiven" : "awayTeamTalkGiven";
+            const outcomeKey = side === "home" ? "homeTeamTalkOutcome" : "awayTeamTalkOutcome";
+            return { ...m, [key]: mult, [givenKey]: true, [outcomeKey]: outcome };
+        });
+    }
+    function giveManagerShoutout(side) {
+        setActiveMatch((m) => {
+            if (!m)
+                return m;
+            const halfKey = m.minute < 45 ? "first" : "second";
+            const usedKey = side === "home" ? "homeShoutoutHalf" : "awayShoutoutHalf";
+            if (m[usedKey] === halfKey)
+                return m;
+            // Deliberately uncertain — a well-timed shout can lift the team for a few minutes, a
+            // badly-timed one does nothing at all. Once per half, no way to know in advance.
+            const roll = Math.random();
+            const worked = roll < 0.5;
+            const key = side === "home" ? "homeTeamTalkMult" : "awayTeamTalkMult";
+            const currentMult = m[key] || 1;
+            const outcomeKey = side === "home" ? "homeShoutoutOutcome" : "awayShoutoutOutcome";
+            return {
+                ...m,
+                [usedKey]: halfKey,
+                [key]: worked ? currentMult * 1.1 : currentMult,
+                [outcomeKey]: worked ? "That's got through to them — a real lift out there!" : "Shouted from the touchline… nobody reacted. Timing was off.",
+            };
+        });
+    }
     function makeSub(side, outId, inPlayer) {
         setActiveMatch((m) => {
             if (!m)
@@ -3712,10 +3946,12 @@ function App() {
             finalRatings[p.id] = livePlayerRating(p.id, p.position === "GK", goals, m.playerStats, m.stamina[p.id]);
         });
         let motmId = null, motmRating = -1;
-        Object.keys(finalRatings).forEach((id) => { if (finalRatings[id] > motmRating) {
-            motmRating = finalRatings[id];
-            motmId = id;
-        } });
+        Object.keys(finalRatings).forEach((id) => {
+            if (finalRatings[id] > motmRating) {
+                motmRating = finalRatings[id];
+                motmId = id;
+            }
+        });
         const motmPlayer = allOnPitch.find((p) => p.id === motmId);
         setWorld((w) => {
             const scorerCounts = {};
@@ -3772,6 +4008,29 @@ function App() {
         const home = clubsById[m.homeId], away = clubsById[m.awayId];
         const injuryNewsEntries = m.events.filter((e) => e.kind === "injury" || e.kind === "injury-sub").map((e) => ({ id: uid("n"), text: e.text, clubIds: [m.homeId, m.awayId], week, season }));
         const motmNews = motmPlayer ? [{ id: uid("n"), text: `⭐ Man of the Match: ${motmPlayer.name} (rating ${motmRating.toFixed(1)})`, clubIds: [m.homeId, m.awayId], week, season }] : [];
+        // Coach feedback — only if you've actually hired one, and only for genuinely notable
+        // performances either way, not every single player after every game.
+        const coachMsgs = [];
+        [{ clubId: m.homeId, xi: m.homeXI }, { clubId: m.awayId, xi: m.awayXI }].forEach(({ clubId, xi }) => {
+            if (!controlled.includes(clubId))
+                return;
+            const coach = staffFor(clubId, "coach");
+            if (!coach)
+                return;
+            const rated = xi.map((p) => ({ p, rating: finalRatings[p.id] ?? 6.0 })).filter((r) => r.rating);
+            if (!rated.length)
+                return;
+            const best = [...rated].sort((a, b) => b.rating - a.rating)[0];
+            const worst = [...rated].sort((a, b) => a.rating - b.rating)[0];
+            if (best.rating >= 7.8) {
+                coachMsgs.push({ id: uid("cm"), kind: "coach", clubId, playerId: best.p.id, playerName: best.p.name, tone: "good", text: `${coach.name}: "${best.p.name} was excellent out there today — rating of ${best.rating.toFixed(1)}. Worth recognising."`, week, season, resolved: false });
+            }
+            if (worst.rating <= 5.5 && worst.p.id !== best.p.id) {
+                coachMsgs.push({ id: uid("cm"), kind: "coach", clubId, playerId: worst.p.id, playerName: worst.p.name, tone: "bad", text: `${coach.name}: "${worst.p.name} really struggled today — rating of ${worst.rating.toFixed(1)}. Might be worth a word."`, week, season, resolved: false });
+            }
+        });
+        if (coachMsgs.length)
+            setBoardFanMessages((msgs) => [...coachMsgs, ...msgs].slice(0, 200));
         setNews((n) => [{ id: uid("n"), text: `${m.isCup ? "CUP: " : "FT: "}${home.name} ${hg}-${ag} ${away.name}`, clubIds: [m.homeId, m.awayId], week, season }, ...motmNews, ...injuryNewsEntries, ...n].slice(0, 150));
         setActiveMatch(null);
         setSubPanel(null);
@@ -3829,10 +4088,12 @@ function App() {
                     fixtureRatings[p.id] = clamp(6.0 + goals * 1.2 + resultAdj + (Math.random() * 0.6 - 0.3), 3, 10);
                 });
                 let motmId = null, motmRating = -1;
-                Object.keys(fixtureRatings).forEach((id) => { if (fixtureRatings[id] > motmRating) {
-                    motmRating = fixtureRatings[id];
-                    motmId = id;
-                } });
+                Object.keys(fixtureRatings).forEach((id) => {
+                    if (fixtureRatings[id] > motmRating) {
+                        motmRating = fixtureRatings[id];
+                        motmId = id;
+                    }
+                });
                 const motmPlayerObj = [...homeXI, ...awayXI].find((p) => p.id === motmId);
                 players = players.map((p) => {
                     let np = p;
@@ -3988,10 +4249,12 @@ function App() {
             fixtureRatings[p.id] = clamp(6.0 + goals * 1.2 + resultAdj + (Math.random() * 0.6 - 0.3), 3, 10);
         });
         let motmId = null, motmRating = -1;
-        Object.keys(fixtureRatings).forEach((id) => { if (fixtureRatings[id] > motmRating) {
-            motmRating = fixtureRatings[id];
-            motmId = id;
-        } });
+        Object.keys(fixtureRatings).forEach((id) => {
+            if (fixtureRatings[id] > motmRating) {
+                motmRating = fixtureRatings[id];
+                motmId = id;
+            }
+        });
         const motmPlayerObj = [...homeXI, ...awayXI].find((p) => p.id === motmId);
         let newPlayers = players.map((p) => {
             let np = p;
@@ -4252,7 +4515,7 @@ function App() {
                     startingBudget: divisionId !== c.divisionId ? (DIVISION_BASELINE_BUDGET[divisionId] ?? c.startingBudget) : c.startingBudget,
                     // any sponsor deal signed last season (for "next season") activates now
                     kitSponsor: c.pendingKitSponsor || c.kitSponsor, groundSponsor: c.pendingGroundSponsor || c.groundSponsor, bootSponsor: c.pendingBootSponsor || c.bootSponsor,
-                    pendingKitSponsor: null, pendingGroundSponsor: null, pendingBootSponsor: null, sponsorOffersSeason: null, transferBudgetUsed: 0 };
+                    pendingKitSponsor: null, pendingGroundSponsor: null, pendingBootSponsor: null, sponsorOffersSeason: null, transferBudgetUsed: 0, lockerRoomEventsThisSeason: 0 };
             });
             let fx = [];
             DIVISIONS_SEED.forEach((div) => {
@@ -4378,6 +4641,7 @@ function App() {
             // of young fictional players debuts as free agents, with a real spread of quality.
             const clauseTriggeredNews = [];
             const loanReturnNews = [];
+            const trainingFeedback = [];
             const developedPlayers = w.players.map((p) => {
                 // snapshot this season's stats into the player's history log before resetting them,
                 // so their profile can show a season-by-season breakdown later
@@ -4388,6 +4652,18 @@ function App() {
                 } : { ...p, seasonApps: 0, seasonGoals: 0, seasonShots: 0, seasonSaves: 0, seasonAssists: 0, seasonGoalsConceded: 0 };
                 const myCoach = (w.staff || []).find((s) => s.clubId === p.clubId && s.role === "coach");
                 const dev = developPlayer(withSeasonLog, p.clubId ? effectiveTierFromBudget(clubsById[p.clubId]?.startingBudget) : 1, myCoach?.skill);
+                // Training feedback from the coach — only for a genuinely notable swing across
+                // the season, and only if you've actually got one hired, same spirit as the
+                // match-day feedback.
+                if (myCoach && p.clubId && controlled.includes(p.clubId)) {
+                    const change = dev.overall - p.overall;
+                    if (change >= 3) {
+                        trainingFeedback.push({ id: uid("cm"), kind: "coach", clubId: p.clubId, playerId: p.id, playerName: p.name, tone: "good", text: `${myCoach.name}: "${p.name} has really kicked on this season — up from ${p.overall} to ${dev.overall} overall. Training's paying off."`, week: 1, season: season + 1, resolved: false });
+                    }
+                    else if (change <= -3) {
+                        trainingFeedback.push({ id: uid("cm"), kind: "coach", clubId: p.clubId, playerId: p.id, playerName: p.name, tone: "bad", text: `${myCoach.name}: "${p.name} has dropped off this season — down to ${dev.overall} from ${p.overall}. Might be worth checking in with them."`, week: 1, season: season + 1, resolved: false });
+                    }
+                }
                 const withPlayerOfSeason = (motmLeader && p.id === motmLeader.id) ? { ...dev, playerOfSeasonCount: (dev.playerOfSeasonCount || 0) + 1 } : dev;
                 // Loan spells end automatically at the season boundary they were due back — no need to
                 // manage the calendar yourself, they just reappear at their parent club next season.
@@ -4421,6 +4697,9 @@ function App() {
             }
             if (loanReturnNews.length) {
                 setNews((n) => [...loanReturnNews.map((text) => ({ id: uid("n"), text: `📋 ${text}`, clubIds: [], week: newWeek, season })), ...n].slice(0, 150));
+            }
+            if (trainingFeedback.length) {
+                setBoardFanMessages((msgs) => [...trainingFeedback, ...msgs].slice(0, 200));
             }
             // Youth academy investment pays off here — a genuinely different way to build a squad than
             // buying: patient, uncertain, but the player joins your own books directly rather than
@@ -4741,6 +5020,7 @@ function App() {
         // in the relegation zone deep into the season, and a much sharper drain if you're in the red.
         // Staying in debt for a month straight means the board stops asking and just sells someone.
         const forcedSaleNews = [];
+        const leagueEventNews = [];
         const flavorMessages = [];
         setWorld((w) => {
             const newPlayers = [...w.players];
@@ -4791,14 +5071,39 @@ function App() {
                     if (pool)
                         flavorMessages.push({ id: uid("fm"), text: pool[Math.floor(Math.random() * pool.length)], clubId: c.id, week, season, kind: "fan" });
                 }
-                // Occasional random events with a real effect, not just flavour — genuinely rare (once
-                // every ~40 weeks per club on average) so it stays a surprise rather than a pattern.
-                if (Math.random() < 0.025) {
+                // Occasional random events with a real effect, not just flavour — a genuine
+                // surprise rather than a pattern, but frequent enough to actually show up across
+                // a normal save rather than being once-in-a-blue-moon. Surfaced in the general
+                // News feed too (not just Messages), since Messages only ever shows your own
+                // club — without this, a rival's event was never visible to you at all.
+                if (Math.random() < 0.05) {
                     const positive = Math.random() < 0.55;
                     const pool = positive ? RANDOM_POSITIVE_EVENTS : RANDOM_NEGATIVE_EVENTS;
                     const swing = positive ? randInt(3, 7) : -randInt(3, 7);
                     updated = { ...updated, fanPopularity: clamp((updated.fanPopularity ?? 50) + swing, 5, 100) };
-                    flavorMessages.push({ id: uid("fm"), text: `${positive ? "📈" : "📉"} ${pool[Math.floor(Math.random() * pool.length)]}`, clubId: c.id, week, season, kind: "event" });
+                    const line = pool[Math.floor(Math.random() * pool.length)];
+                    flavorMessages.push({ id: uid("fm"), text: `${positive ? "📈" : "📉"} ${line}`, clubId: c.id, week, season, kind: "event" });
+                    leagueEventNews.push({ id: uid("n"), text: `${positive ? "📈" : "📉"} ${c.name}: ${line}`, clubIds: [c.id], week, season });
+                }
+                // Locker room antics — internal squad dynamics, distinct from public fan/board
+                // sentiment above. Affects one actual player's morale directly, not the club's
+                // public standing. Capped per season rather than a flat weekly fluke, so a real
+                // season sees a handful of these rather than anywhere from zero to a dozen.
+                const roomEventsSoFar = updated.lockerRoomEventsThisSeason || 0;
+                if (roomEventsSoFar < 3 && Math.random() < 0.1) {
+                    const squadForRoom = newPlayers.filter((p) => p.clubId === c.id);
+                    if (squadForRoom.length) {
+                        const target = choice(squadForRoom);
+                        const positive = Math.random() < 0.5;
+                        const pool = positive ? LOCKERROOM_POSITIVE_EVENTS : LOCKERROOM_NEGATIVE_EVENTS;
+                        const swing = positive ? randInt(4, 9) : -randInt(4, 9);
+                        const line = pool[Math.floor(Math.random() * pool.length)].replace("{player}", target.name);
+                        const idx = newPlayers.findIndex((p) => p.id === target.id);
+                        if (idx >= 0)
+                            newPlayers[idx] = { ...newPlayers[idx], morale: clamp(newPlayers[idx].morale + swing, 0, 100) };
+                        flavorMessages.push({ id: uid("fm"), text: `${positive ? "🙂" : "😬"} ${line}`, clubId: c.id, week, season, kind: "event" });
+                        updated = { ...updated, lockerRoomEventsThisSeason: roomEventsSoFar + 1 };
+                    }
                 }
                 if (weeksInDebt >= 4) {
                     const squad = w.players.filter((p) => p.clubId === c.id);
@@ -4818,6 +5123,8 @@ function App() {
         });
         if (forcedSaleNews.length)
             setNews((n) => [...forcedSaleNews, ...n].slice(0, 150));
+        if (leagueEventNews.length)
+            setNews((n) => [...leagueEventNews, ...n].slice(0, 150));
         if (flavorMessages.length)
             setBoardFanMessages((m) => [...flavorMessages, ...m].slice(0, 200));
         const newWeek = week + 1;
@@ -5002,6 +5309,34 @@ function App() {
     }
     function staffFor(clubId, role) {
         return world?.staff?.find((s) => s.clubId === clubId && s.role === role);
+    }
+    function respondToCoachFeedback(msgId, action) {
+        const msg = boardFanMessages.find((m) => m.id === msgId);
+        if (!msg || msg.resolved)
+            return;
+        const player = world.players.find((p) => p.id === msg.playerId);
+        const club = clubsById[msg.clubId];
+        if (player && club) {
+            if (action === "bonus") {
+                const cost = Math.max(200, player.wage);
+                if (club.budget >= cost) {
+                    setWorld((w) => ({
+                        ...w,
+                        clubs: w.clubs.map((c) => (c.id === msg.clubId ? { ...c, budget: c.budget - cost } : c)),
+                        players: w.players.map((p) => (p.id === msg.playerId ? { ...p, morale: clamp(p.morale + 8, 0, 100) } : p)),
+                    }));
+                    setNews((n) => [{ id: uid("n"), text: `${club.name} reward ${player.name} with a bonus after the coach's report — ${formatMoney(cost)}.`, clubIds: [msg.clubId], week, season }, ...n].slice(0, 150));
+                }
+            }
+            else if (action === "thanks") {
+                setWorld((w) => ({ ...w, players: w.players.map((p) => (p.id === msg.playerId ? { ...p, morale: clamp(p.morale + 3, 0, 100) } : p)) }));
+            }
+            else if (action === "discipline") {
+                setWorld((w) => ({ ...w, players: w.players.map((p) => (p.id === msg.playerId ? { ...p, morale: clamp(p.morale - 10, 0, 100) } : p)) }));
+                setNews((n) => [{ id: uid("n"), text: `${club.name} have a word with ${player.name} after the coach flagged a poor showing.`, clubIds: [msg.clubId], week, season }, ...n].slice(0, 150));
+            }
+        }
+        setBoardFanMessages((msgs) => msgs.map((m) => (m.id === msgId ? { ...m, resolved: true } : m)));
     }
     function applyManagerBonus(xi, club) {
         // The one thing that's genuinely "the manager" rather than any specific player or specialist
@@ -5587,8 +5922,10 @@ function App() {
                 const newLineup = { ...c.lineup };
                 // Nobody plays two positions at once — if this player is already somewhere else in
                 // the lineup, vacate that slot first rather than allowing a duplicate.
-                Object.keys(newLineup).forEach((sid) => { if (sid !== slotId && newLineup[sid] === playerId)
-                    delete newLineup[sid]; });
+                Object.keys(newLineup).forEach((sid) => {
+                    if (sid !== slotId && newLineup[sid] === playerId)
+                        delete newLineup[sid];
+                });
                 newLineup[slotId] = playerId;
                 return { ...c, lineup: newLineup };
             }),
@@ -6302,10 +6639,13 @@ function App() {
                 React.createElement("div", { className: "text-center text-[10px] tracking-[0.3em] font-bold mb-1", style: { color: C.amber } },
                     m.isCup ? cupNameFor(m.cupKey).toUpperCase() : `WEEK ${week}`,
                     " MATCHDAY"),
-                m.weather && (() => { const w = WEATHER_TYPES.find((x) => x.key === m.weather); return w ? React.createElement("div", { className: "text-center text-[10px] mb-1", style: { color: C.sub } },
-                    w.icon,
-                    " ",
-                    w.label) : null; })(),
+                m.weather && (() => {
+                    const w = WEATHER_TYPES.find((x) => x.key === m.weather);
+                    return w ? React.createElement("div", { className: "text-center text-[10px] mb-1", style: { color: C.sub } },
+                        w.icon,
+                        " ",
+                        w.label) : null;
+                })(),
                 React.createElement("div", { className: "text-center text-[9px] mb-3", style: { color: C.sub } },
                     "\uD83C\uDFDF\uFE0F ",
                     stadiumNameFor(clubsById[m.homeId])),
@@ -6373,11 +6713,34 @@ function App() {
                         "\u00D7",
                         s))),
                     !m.atHalftime && (React.createElement("button", { onClick: toggleMatchRunning, className: "ml-auto px-4 py-1.5 rounded-lg text-xs font-bold border", style: { borderColor: m.running ? C.red : C.amber, backgroundColor: m.running ? C.red : C.amber, color: "#FFFFFF" } }, m.minute === 0 && !m.running ? "▶ KICK OFF" : m.running ? "⏸ PAUSE" : "▶ RESUME")))),
+                !full && !m.atHalftime && m.minute > 0 && (() => {
+                    const halfKey = m.minute < 45 ? "first" : "second";
+                    const homeControlled = controlled.includes(m.homeId);
+                    const awayControlled = controlled.includes(m.awayId);
+                    const side = homeControlled ? "home" : awayControlled ? "away" : null;
+                    if (!side)
+                        return null;
+                    const usedKey = side === "home" ? "homeShoutoutHalf" : "awayShoutoutHalf";
+                    const outcomeKey = side === "home" ? "homeShoutoutOutcome" : "awayShoutoutOutcome";
+                    const usedThisHalf = m[usedKey] === halfKey;
+                    return (React.createElement("div", { className: "mb-3" },
+                        React.createElement("button", { onClick: () => giveManagerShoutout(side), disabled: usedThisHalf, className: "w-full py-2 rounded-lg text-xs font-bold border disabled:opacity-40", style: { borderColor: C.amber, color: C.amber } },
+                            "\uD83D\uDCE3 Manager Shout-Out ",
+                            usedThisHalf ? "(used this half)" : "— one per half, uncertain"),
+                        usedThisHalf && m[outcomeKey] && React.createElement("div", { className: "text-[10px] text-center mt-1", style: { color: C.sub } }, m[outcomeKey])));
+                })(),
                 React.createElement("div", { className: "flex gap-1.5 mb-3" }, [["action", "📣", "Action"], ["pitch", "🟩", "Pitch"], ["stats", "📊", "Stats"], ["ratings", "⭐", "Ratings"]].map(([key, icon, label]) => (React.createElement("button", { key: key, onClick: () => setMatchViewTab(key), className: "flex-1 py-2 rounded-lg text-[10px] font-bold border flex flex-col items-center gap-0.5", style: { borderColor: matchViewTab === key ? C.green : C.border, backgroundColor: matchViewTab === key ? C.cardAlt : C.card, color: matchViewTab === key ? C.greenDark : C.sub } },
                     React.createElement("span", { style: { fontSize: 14 } }, icon),
                     label)))),
+                matchViewTab === "action" && (React.createElement("div", { className: "mb-4 rounded-lg border overflow-hidden", style: { borderColor: C.border } },
+                    React.createElement("div", { className: "text-[10px] tracking-widest font-bold px-3 py-2", style: { backgroundColor: C.cardAlt, color: C.green } }, "LIVE COMMENTARY"),
+                    React.createElement("div", { className: "max-h-72 overflow-y-auto" }, (m.commentary || []).length === 0 ? (React.createElement("div", { className: "text-xs italic text-center py-4", style: { color: C.sub } }, "Kick off to see it unfold.")) : (m.commentary || []).map((c, i) => (React.createElement("div", { key: i, className: "px-3 py-2 text-xs border-t", style: { borderColor: C.cardAlt, backgroundColor: c.important ? C.cardAlt : "transparent", fontWeight: c.important ? "bold" : "normal" } },
+                        c.minute != null && React.createElement("span", { className: "font-bold mr-1.5", style: { color: C.sub } },
+                            c.minute,
+                            "'"),
+                        c.text)))))),
                 matchViewTab === "pitch" && (React.createElement("div", { className: "mb-4" },
-                    React.createElement(MatchPitchView, { homeXI: m.homeXI, awayXI: m.awayXI, homeFormation: m.homeFormation, awayFormation: m.awayFormation, ballPosition: m.ballPosition, homeName: home.name, awayName: away.name, secondHalf: m.minute >= 45, minute: m.minute, reduceMotion: reducePitchMotion }))),
+                    React.createElement(MatchPitchView, { homeXI: m.homeXI, awayXI: m.awayXI, homeFormation: m.homeFormation, awayFormation: m.awayFormation, ballPosition: m.ballPosition, homeName: home.name, awayName: away.name, secondHalf: m.minute >= 45, minute: m.minute, reduceMotion: reducePitchMotion, commentary: m.commentary }))),
                 matchViewTab === "stats" && (() => {
                     const totalPoss = (m.homePossession || 0) + (m.awayPossession || 0);
                     const homePct = totalPoss > 0 ? Math.round(((m.homePossession || 0) / totalPoss) * 100) : 50;
@@ -6531,7 +6894,35 @@ function App() {
                                     React.createElement("span", { className: "pr-8" }, track),
                                     React.createElement("span", { className: "pr-8" }, track))))));
                 })(),
-                m.atHalftime ? (React.createElement("button", { onClick: continueFromHalftime, className: "w-full py-3 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "START SECOND HALF")) : full ? (React.createElement("button", { onClick: finalizeMatch, className: "w-full py-3 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "CONFIRM RESULT")) : null)));
+                m.atHalftime ? ((() => {
+                    const homeControlled = controlled.includes(m.homeId);
+                    const awayControlled = controlled.includes(m.awayId);
+                    const homeNeedsTalk = homeControlled && !m.homeTeamTalkGiven;
+                    const awayNeedsTalk = awayControlled && !m.awayTeamTalkGiven;
+                    if (!homeNeedsTalk && !awayNeedsTalk) {
+                        return (React.createElement(React.Fragment, null,
+                            m.homeTeamTalkOutcome && homeControlled && React.createElement("div", { className: "text-xs text-center mb-2", style: { color: C.sub } },
+                                home.name,
+                                ": ",
+                                m.homeTeamTalkOutcome),
+                            m.awayTeamTalkOutcome && awayControlled && React.createElement("div", { className: "text-xs text-center mb-2", style: { color: C.sub } },
+                                away.name,
+                                ": ",
+                                m.awayTeamTalkOutcome),
+                            React.createElement("button", { onClick: continueFromHalftime, className: "w-full py-3 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "START SECOND HALF")));
+                    }
+                    const side = homeNeedsTalk ? "home" : "away";
+                    const clubName = homeNeedsTalk ? home.name : away.name;
+                    return (React.createElement("div", { className: "rounded-lg p-3 border", style: { borderColor: C.amber, backgroundColor: C.cardAlt } },
+                        React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5 text-center", style: { color: C.amber } },
+                            "HALF-TIME TEAM TALK \u2014 ",
+                            clubName.toUpperCase()),
+                        React.createElement("div", { className: "text-[9px] mb-2 text-center", style: { color: C.sub } }, "No sure thing here \u2014 the right tone depends on the moment, not a guaranteed boost."),
+                        React.createElement("div", { className: "grid grid-cols-3 gap-1.5" },
+                            React.createElement("button", { onClick: () => giveTeamTalk(side, "calm"), className: "py-2 rounded-lg text-[10px] font-bold border", style: { borderColor: C.border, backgroundColor: "#FFFFFF" } }, "Calm & Measured"),
+                            React.createElement("button", { onClick: () => giveTeamTalk(side, "rousing"), className: "py-2 rounded-lg text-[10px] font-bold border", style: { borderColor: C.border, backgroundColor: "#FFFFFF" } }, "Rousing"),
+                            React.createElement("button", { onClick: () => giveTeamTalk(side, "demanding"), className: "py-2 rounded-lg text-[10px] font-bold border", style: { borderColor: C.border, backgroundColor: "#FFFFFF" } }, "Demanding"))));
+                })()) : full ? (React.createElement("button", { onClick: finalizeMatch, className: "w-full py-3 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "CONFIRM RESULT")) : null)));
     }
     if (viewingPlayerId && world) {
         const viewingPlayer = world.players.find((p) => p.id === viewingPlayerId);
@@ -6877,9 +7268,13 @@ function App() {
                 React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-2", style: { color: "#8C7229" } }, "LEAGUE CHAMPIONS"),
                 DIVISIONS_SEED.map((div) => {
                     const champ = rec?.tables?.[div.id]?.[0];
-                    return React.createElement(AwardCard, { key: div.id, icon: "\uD83C\uDFC6", title: `${div.name.toUpperCase()} CHAMPIONS`, name: champ?.name, sub: champ ? `${champ.pts} points` : "", onClick: champ ? () => { setRoundupSeason(null); const c = clubsById[champ.id]; if (c) {
-                            setViewingManagerClubId(champ.id);
-                        } } : null });
+                    return React.createElement(AwardCard, { key: div.id, icon: "\uD83C\uDFC6", title: `${div.name.toUpperCase()} CHAMPIONS`, name: champ?.name, sub: champ ? `${champ.pts} points` : "", onClick: champ ? () => {
+                            setRoundupSeason(null);
+                            const c = clubsById[champ.id];
+                            if (c) {
+                                setViewingManagerClubId(champ.id);
+                            }
+                        } : null });
                 }),
                 React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-2 mt-4", style: { color: "#8C7229" } }, "CUP WINNERS"),
                 React.createElement(AwardCard, { icon: "\u2694\uFE0F", title: "EMPIRE CUP", name: rec?.cupChampion ? clubsById[rec.cupChampion]?.name : null }),
@@ -6888,23 +7283,35 @@ function App() {
                     React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-2 mt-4", style: { color: "#8C7229" } }, "PLAYOFF DRAMA"),
                     awards.playoffResults.map((t) => (React.createElement(AwardCard, { key: t.id, icon: "\uD83C\uDF9F\uFE0F", title: t.winnerId === t.promoClubId ? "PROMOTED VIA PLAYOFF" : "SURVIVED VIA PLAYOFF", name: t.winnerId === t.promoClubId ? clubsById[t.promoClubId]?.name : clubsById[t.surviveClubId]?.name, sub: `Beat ${t.winnerId === t.promoClubId ? clubsById[t.surviveClubId]?.name : clubsById[t.promoClubId]?.name}${t.penaltyScore ? ` on penalties (${t.penaltyScore.home}-${t.penaltyScore.away})` : ""}` }))))),
                 React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-2 mt-4", style: { color: "#8C7229" } }, "INDIVIDUAL HONOURS"),
-                React.createElement(AwardCard, { icon: "\uD83C\uDF1F", title: "PLAYER OF THE SEASON", name: rec?.playerOfSeason?.name, sub: rec?.playerOfSeason ? `${rec.playerOfSeason.motmCount} Man of the Match award${rec.playerOfSeason.motmCount === 1 ? "" : "s"}` : "", onClick: rec?.playerOfSeason ? () => { const p = world.players.find((pl) => pl.id === rec.playerOfSeason.id); if (p) {
-                        setRoundupSeason(null);
-                        setViewingPlayerId(p.id);
-                    } } : null }),
+                React.createElement(AwardCard, { icon: "\uD83C\uDF1F", title: "PLAYER OF THE SEASON", name: rec?.playerOfSeason?.name, sub: rec?.playerOfSeason ? `${rec.playerOfSeason.motmCount} Man of the Match award${rec.playerOfSeason.motmCount === 1 ? "" : "s"}` : "", onClick: rec?.playerOfSeason ? () => {
+                        const p = world.players.find((pl) => pl.id === rec.playerOfSeason.id);
+                        if (p) {
+                            setRoundupSeason(null);
+                            setViewingPlayerId(p.id);
+                        }
+                    } : null }),
                 React.createElement(AwardCard, { icon: "\uD83C\uDF93", title: "MANAGER OF THE SEASON", name: awards.bestManager?.name, sub: awards.bestManager ? `${clubsById[awards.bestManager.clubId]?.name} — ${awards.bestManager.ppg.toFixed(2)} points per game` : "", onClick: awards.bestManager ? () => setViewingManagerClubId(awards.bestManager.clubId) : null }),
-                React.createElement(AwardCard, { icon: "\u26BD", title: "TOP SCORER", name: awards.topScorer?.name, sub: awards.topScorer ? `${awards.topScorer.value} goals for ${clubsById[awards.topScorer.clubId]?.name}` : "", onClick: awards.topScorer ? () => { const p = world.players.find((pl) => pl.id === awards.topScorer.id); if (p) {
-                        setRoundupSeason(null);
-                        setViewingPlayerId(p.id);
-                    } } : null }),
-                React.createElement(AwardCard, { icon: "\uD83C\uDFAF", title: "TOP ASSISTS", name: awards.topAssist?.name, sub: awards.topAssist ? `${awards.topAssist.value} assists for ${clubsById[awards.topAssist.clubId]?.name}` : "", onClick: awards.topAssist ? () => { const p = world.players.find((pl) => pl.id === awards.topAssist.id); if (p) {
-                        setRoundupSeason(null);
-                        setViewingPlayerId(p.id);
-                    } } : null }),
-                React.createElement(AwardCard, { icon: "\uD83E\uDDE4", title: "MOST SAVES", name: awards.topSaves?.name, sub: awards.topSaves ? `${awards.topSaves.value} saves for ${clubsById[awards.topSaves.clubId]?.name}` : "", onClick: awards.topSaves ? () => { const p = world.players.find((pl) => pl.id === awards.topSaves.id); if (p) {
-                        setRoundupSeason(null);
-                        setViewingPlayerId(p.id);
-                    } } : null }),
+                React.createElement(AwardCard, { icon: "\u26BD", title: "TOP SCORER", name: awards.topScorer?.name, sub: awards.topScorer ? `${awards.topScorer.value} goals for ${clubsById[awards.topScorer.clubId]?.name}` : "", onClick: awards.topScorer ? () => {
+                        const p = world.players.find((pl) => pl.id === awards.topScorer.id);
+                        if (p) {
+                            setRoundupSeason(null);
+                            setViewingPlayerId(p.id);
+                        }
+                    } : null }),
+                React.createElement(AwardCard, { icon: "\uD83C\uDFAF", title: "TOP ASSISTS", name: awards.topAssist?.name, sub: awards.topAssist ? `${awards.topAssist.value} assists for ${clubsById[awards.topAssist.clubId]?.name}` : "", onClick: awards.topAssist ? () => {
+                        const p = world.players.find((pl) => pl.id === awards.topAssist.id);
+                        if (p) {
+                            setRoundupSeason(null);
+                            setViewingPlayerId(p.id);
+                        }
+                    } : null }),
+                React.createElement(AwardCard, { icon: "\uD83E\uDDE4", title: "MOST SAVES", name: awards.topSaves?.name, sub: awards.topSaves ? `${awards.topSaves.value} saves for ${clubsById[awards.topSaves.clubId]?.name}` : "", onClick: awards.topSaves ? () => {
+                        const p = world.players.find((pl) => pl.id === awards.topSaves.id);
+                        if (p) {
+                            setRoundupSeason(null);
+                            setViewingPlayerId(p.id);
+                        }
+                    } : null }),
                 React.createElement(AwardCard, { icon: "\uD83D\uDCC8", title: "BEST WIN RATIO", name: awards.bestWinRatio ? clubsById[awards.bestWinRatio.clubId]?.name : null, sub: awards.bestWinRatio ? `${awards.bestWinRatio.won}/${awards.bestWinRatio.played} wins — ${Math.round(awards.bestWinRatio.ratio * 100)}%` : "" }),
                 React.createElement("button", { onClick: () => setRoundupSeason(null), className: "w-full py-3.5 mt-4 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: "#D8B968", color: "#3A2A0E" } },
                     "CONTINUE TO SEASON ",
@@ -7438,9 +7845,7 @@ function App() {
                             f.played ? React.createElement("span", { className: "text-xs font-bold" },
                                 f.homeGoals,
                                 " - ",
-                                f.awayGoals)
-                                : isNext ? React.createElement("button", { onClick: () => openMatch(f, false), className: "text-[10px] font-bold px-2.5 py-1 rounded", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "PLAY")
-                                    : React.createElement("span", { className: "text-[10px]", style: { color: C.sub } }, "Upcoming"))));
+                                f.awayGoals) : isNext ? React.createElement("button", { onClick: () => openMatch(f, false), className: "text-[10px] font-bold px-2.5 py-1 rounded", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "PLAY") : React.createElement("span", { className: "text-[10px]", style: { color: C.sub } }, "Upcoming"))));
                 })))),
             tab === "market" && world && (marketPlayerId ? (() => {
                 const p = world.players.find((pl) => pl.id === marketPlayerId);
@@ -7676,9 +8081,7 @@ function App() {
                                             t.penaltyScore.home,
                                             "-",
                                             t.penaltyScore.away,
-                                            " pens)") : "")
-                                        : isMine ? React.createElement("button", { onClick: () => openMatch(t, true), className: "text-[10px] font-bold px-2.5 py-1 rounded", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "PLAY")
-                                            : React.createElement("span", { className: "text-[10px]", style: { color: C.sub } }, "Pending")));
+                                            " pens)") : "") : isMine ? React.createElement("button", { onClick: () => openMatch(t, true), className: "text-[10px] font-bold px-2.5 py-1 rounded", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "PLAY") : React.createElement("span", { className: "text-[10px]", style: { color: C.sub } }, "Pending")));
                             }),
                             !cupObj?.champion && roundTies.ties.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Waiting on the next round to be drawn."))))));
             })(),
@@ -7841,12 +8244,12 @@ function App() {
                 })))),
             tab === "messages" && world && (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "MESSAGES"),
-                React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "What the board and fans have actually been saying lately, for whichever club you're managing."),
+                React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "What the board, fans, and your own staff have actually been saying lately, for whichever club you're managing."),
                 React.createElement("div", { className: "space-y-1.5" },
-                    boardFanMessages.filter((m) => controlled.includes(m.clubId)).slice(0, 60).map((m) => (React.createElement("div", { key: m.id, className: "rounded-lg px-3 py-2 text-xs border", style: { backgroundColor: C.card, borderColor: m.kind === "board" ? C.amber : m.kind === "event" ? "#9B59B6" : C.green } },
+                    boardFanMessages.filter((m) => controlled.includes(m.clubId)).slice(0, 60).map((m) => (React.createElement("div", { key: m.id, className: "rounded-lg px-3 py-2 text-xs border", style: { backgroundColor: C.card, borderColor: m.kind === "board" ? C.amber : m.kind === "event" ? "#9B59B6" : m.kind === "coach" ? "#3B82C4" : C.green } },
                         React.createElement("div", { className: "flex items-center justify-between mb-0.5" },
-                            React.createElement("span", { className: "text-[9px] font-bold tracking-wide", style: { color: m.kind === "board" ? C.amber : m.kind === "event" ? "#9B59B6" : C.green } },
-                                m.kind === "board" ? "🏛️ BOARD" : m.kind === "event" ? "📰 NEWS" : "📣 FANS",
+                            React.createElement("span", { className: "text-[9px] font-bold tracking-wide", style: { color: m.kind === "board" ? C.amber : m.kind === "event" ? "#9B59B6" : m.kind === "coach" ? "#3B82C4" : C.green } },
+                                m.kind === "board" ? "🏛️ BOARD" : m.kind === "event" ? "📰 NEWS" : m.kind === "coach" ? "🩺 COACH" : "📣 FANS",
                                 " \u2014 ",
                                 clubsById[m.clubId]?.name),
                             React.createElement("span", { className: "text-[9px]", style: { color: C.sub } },
@@ -7854,7 +8257,13 @@ function App() {
                                 m.season,
                                 "\u00B7W",
                                 m.week)),
-                        m.text))),
+                        m.text,
+                        m.kind === "coach" && !m.resolved && (React.createElement("div", { className: "flex gap-1.5 mt-2" }, m.tone === "good" ? (React.createElement(React.Fragment, null,
+                            React.createElement("button", { onClick: () => respondToCoachFeedback(m.id, "bonus"), className: "flex-1 text-[9px] font-bold py-1.5 rounded", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "Give Bonus"),
+                            React.createElement("button", { onClick: () => respondToCoachFeedback(m.id, "thanks"), className: "flex-1 text-[9px] font-bold py-1.5 rounded border", style: { borderColor: C.border, color: C.sub } }, "Say Thanks"))) : (React.createElement(React.Fragment, null,
+                            React.createElement("button", { onClick: () => respondToCoachFeedback(m.id, "discipline"), className: "flex-1 text-[9px] font-bold py-1.5 rounded", style: { backgroundColor: C.red, color: "#FFFFFF" } }, "Discipline"),
+                            React.createElement("button", { onClick: () => respondToCoachFeedback(m.id, "thanks"), className: "flex-1 text-[9px] font-bold py-1.5 rounded border", style: { borderColor: C.border, color: C.sub } }, "Let It Go"))))),
+                        m.kind === "coach" && m.resolved && React.createElement("div", { className: "text-[9px] italic mt-1", style: { color: C.sub } }, "Handled.")))),
                     boardFanMessages.filter((m) => controlled.includes(m.clubId)).length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nothing yet \u2014 these turn up naturally as results and form swing one way or the other.")))),
             tab === "jobinfo" && world && (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "JOB INFORMATION"),
