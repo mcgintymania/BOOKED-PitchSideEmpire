@@ -326,22 +326,23 @@ table{border-collapse:collapse;}
   .lg\:mt-1\.5{margin-top:0.375rem;}
 }
 .max-h-72{max-height:18rem;}
+.underline{text-decoration-line:underline;}
 
 </style>
 </head>
 <body>
 <div id="root"><div id="boot-msg">Loading BOOKED! Pitch Side Empire&hellip;<br/><span style="font-size:12px;">(needs an internet connection the first time it opens, just to load React)</span></div></div>
 
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script>
   if (typeof React === "undefined") {
-    document.write('<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"><\/script>');
+    document.write('<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js" crossorigin="anonymous"><\/script>');
   }
 </script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script>
   if (typeof ReactDOM === "undefined") {
-    document.write('<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"><\/script>');
+    document.write('<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"><\/script>');
   }
 </script>
 <script>
@@ -947,6 +948,46 @@ function overallFor(p) {
         default: return 50;
     }
 }
+const CLUB_IDENTITIES = {
+    attacking: { label: "Attacking", icon: "⚔️", desc: "Sets out to score more than the opposition rather than stop them scoring at all." },
+    defensive: { label: "Defensive", icon: "🛡️", desc: "Solid before spectacular — building from a settled defence first." },
+    youth: { label: "Youth-Focused", icon: "🌱", desc: "Genuinely prefers to develop its own over buying a finished article." },
+    "star-studded": { label: "Star-Studded", icon: "⭐", desc: "Reaches for a recognisable name whenever the budget allows it." },
+    balanced: { label: "Balanced", icon: "⚖️", desc: "No strong bias either way — plays it as it comes." },
+};
+function clubIdentityFor(club) {
+    // Deterministic from the club's own id — the same club always has the same identity, no
+    // stored field needed on any of the 76 existing clubs, and it stays consistent across an
+    // entire save without needing to be regenerated or tracked anywhere.
+    const seed = hashStr(`${club.id}_identity`);
+    const keys = Object.keys(CLUB_IDENTITIES);
+    return keys[seed % keys.length];
+}
+const PERSONALITY_TYPES = {
+    professional: { label: "Professional", icon: "📋", desc: "Trains that bit harder than most — a genuinely improved chance of developing each season." },
+    ambitious: { label: "Ambitious", icon: "🔥", desc: "Wants to play at the highest level they can reach. Pushes for a move if the club isn't going anywhere, or if they're not getting game time." },
+    temperamental: { label: "Temperamental", icon: "⚡", desc: "Brilliant one week, a real handful the next — morale swings harder in both directions, and discipline can slip when things aren't going well." },
+    loyal: { label: "Loyal", icon: "🤝", desc: "Genuinely values a settled career somewhere they feel valued — rarely pushes for a transfer, and easier to re-sign even below market rate." },
+    leader: { label: "Leader", icon: "⭐", desc: "The kind of presence a dressing room actually needs — a small, real steadying effect on the morale of teammates around them." },
+};
+function personalityFor(player) {
+    // Deterministic from the player's own id — the same player always has the same personality
+    // every time this is checked, without needing a new stored field on 2,151 existing records.
+    const seed = hashStr(`${player.id}_personality`);
+    const keys = Object.keys(PERSONALITY_TYPES);
+    return keys[seed % keys.length];
+}
+function playerReputation(p, club) {
+    // Deliberately not the same number as overall or potential — a genuinely talented young
+    // player who hasn't achieved anything yet reads as unknown here even at a decent overall,
+    // while an established player at a big club, or one with real career achievements behind
+    // them (reputationBonus, built up through trophies and Player of the Season awards), reads
+    // as properly well-known regardless of whether their raw ability has started declining.
+    const tierFactor = (club?.tier || 3) * 6;
+    const ageFactor = p.age >= 28 ? 10 : p.age >= 24 ? 6 : p.age >= 20 ? 2 : 0;
+    const base = (p.overall || 50) * 0.45 + tierFactor + ageFactor;
+    return clamp(Math.round(base + (p.reputationBonus || 0)), 1, 99);
+}
 function genPlayer(clubId, position, tierBoost = 0, usedNames = null) {
     const w = positionWeights(position);
     const stats = {};
@@ -983,6 +1024,13 @@ function genAcademyGraduate(clubId, academyTier, usedNames, clubTier) {
     p.overall = overallFor(p);
     const headroom = randInt(15, 22) + academyTier * 4;
     p.potential = clamp(p.overall + headroom, p.overall, 99);
+    // A better academy genuinely improves your odds of unearthing a real wonderkid, not just a
+    // slightly-better-than-average prospect — investment paying off in a way that's actually
+    // visible, not just a marginal stat bump.
+    if (Math.random() < 0.02 + academyTier * 0.008) {
+        p.potential = clamp(p.overall + randInt(35, 48), p.overall, 99);
+        p.isWonderkid = true;
+    }
     p.wage = newSigningWage(p.overall, clubTier || 1);
     p.value = estimatedValue(p.overall, clubTier || 1);
     return p;
@@ -1028,9 +1076,11 @@ function applyTraining(players, clubsById) {
 function developPlayer(p, clubTier, coachSkill) {
     const potMult = potentialGrowthMult(p);
     // A good assistant coach genuinely improves the odds of a player actually developing — up to
-    // roughly a third more likely at a top-skill coach, nothing at all with no coach hired.
+    // roughly a third more likely at a top-skill coach, nothing at all with no coach hired. A
+    // Professional player trains harder than most regardless of who's coaching them.
     const coachMult = 1 + ((coachSkill || 0) / 100) * 0.35;
-    const growthChance = (p.age <= 20 ? 0.65 : p.age <= 23 ? 0.45 : p.age <= 26 ? 0.15 : 0) * potMult * coachMult;
+    const personalityMult = personalityFor(p) === "professional" ? 1.2 : 1;
+    const growthChance = (p.age <= 20 ? 0.65 : p.age <= 23 ? 0.45 : p.age <= 26 ? 0.15 : 0) * potMult * coachMult * personalityMult;
     const declineChance = p.age >= 33 ? 0.6 : p.age >= 30 ? 0.3 : p.age >= 28 ? 0.1 : 0;
     const stats = { ...p };
     STAT_KEYS.forEach((k) => {
@@ -1205,8 +1255,17 @@ function reconcileAiSquads(players, clubs, controlledIds) {
             // This was the real, unbounded driver behind AI clubs quietly spiralling into debt.
             const currentWageBill = squad.reduce((s, p) => s + (p.wage || 0), 0);
             const affordableCeiling = (weeklySponsorship(club) + weeklyMerchIncome(club)) * 1.4;
-            const listedSorted = pool.filter((p) => p.clubId && p.clubId !== clubId && p.transferListed && !controlledIds.includes(p.clubId)).sort((a, b) => b.overall - a.overall);
-            const agentsSorted = pool.filter((p) => p.clubId === null && !p.retired).sort((a, b) => b.overall - a.overall);
+            // Identity genuinely shapes recruitment, not just tactics — a Youth-Focused club
+            // actually reaches for young prospects over the safer finished article, and a
+            // Star-Studded one actually chases the recognisable name, not just the best overall.
+            const identity = clubIdentityFor(club);
+            const sortFn = identity === "youth"
+                ? (a, b) => (b.overall - Math.max(0, b.age - 21) * 2) - (a.overall - Math.max(0, a.age - 21) * 2)
+                : identity === "star-studded"
+                    ? (a, b) => playerReputation(b, club) - playerReputation(a, club)
+                    : (a, b) => b.overall - a.overall;
+            const listedSorted = pool.filter((p) => p.clubId && p.clubId !== clubId && p.transferListed && !controlledIds.includes(p.clubId)).sort(sortFn);
+            const agentsSorted = pool.filter((p) => p.clubId === null && !p.retired).sort(sortFn);
             const candidatePool = [...listedSorted, ...agentsSorted];
             const candidates = [];
             let runningWageBill = currentWageBill;
@@ -1240,8 +1299,17 @@ function generateDebutBatch(existingPlayers, count, debutSeason) {
         const roll = Math.random();
         const tierBoost = roll < 0.08 ? randInt(6, 13) : roll < 0.35 ? randInt(0, 5) : randInt(-9, -2);
         const p = genPlayer(null, pos, tierBoost, usedNames);
-        p.age = randInt(16, 20);
+        p.age = randInt(16, 18);
         p.debutSeason = debutSeason;
+        // A genuinely rare, dramatic exception — not just the normal spread of decent young
+        // prospects. About 1 in 40 debuts is a real wonderkid: low overall right now, but a
+        // ceiling that's talked-about-for-years territory. Everything else about them (wage,
+        // value) still derives honestly from their current overall, so the bargain is real —
+        // nobody hands you a superstar's price tag for an unproven 17-year-old.
+        if (Math.random() < 0.025) {
+            p.potential = clamp(p.overall + randInt(35, 48), p.overall, 99);
+            p.isWonderkid = true;
+        }
         batch.push(p);
     }
     return batch;
@@ -1585,7 +1653,7 @@ function rollCardEvent(xi, pressMultiplier) {
     const pool = xi.filter((p) => p.position !== "GK");
     if (pool.length === 0)
         return null;
-    const weights = pool.map((p) => (p.position === "DF" ? 1.6 : p.position === "MF" ? 1.3 : 0.8));
+    const weights = pool.map((p) => (p.position === "DF" ? 1.6 : p.position === "MF" ? 1.3 : 0.8) * (personalityFor(p) === "temperamental" ? 1.6 : 1));
     const total = weights.reduce((a, b) => a + b, 0);
     let r = Math.random() * total;
     let picked = pool[pool.length - 1];
@@ -1651,6 +1719,54 @@ function reformatXI(currentXI, bench, newFormation) {
     return { xi: newXI, bench: newBench };
 }
 function teamStrength(xi) { return xi.length === 0 ? 25 : xi.reduce((s, p) => s + p.overall, 0) / xi.length; }
+function computeAttackThreat(attackXI, defendXI) {
+    // Individual matchups now genuinely drive this, not a single blended team-overall number.
+    // A team's attacking threat depends on its own attackers' relevant stats weighed against the
+    // specific opponent lined up defensively against them — a lethal striker against a weak
+    // back line creates real, above-average danger; the same striker against a strong one is
+    // contained more than a flat team-average model would ever reflect. Not full x/y pitch
+    // positioning (the two XI-building paths in this game don't reliably preserve the same slot
+    // order), but position-type matchups (forwards vs backline, midfielders vs midfield) that
+    // work identically no matter which path built either XI.
+    const outfield = attackXI.filter((p) => p.position !== "GK");
+    if (!outfield.length)
+        return 50;
+    const oppDF = defendXI.filter((p) => p.position === "DF");
+    const oppMF = defendXI.filter((p) => p.position === "MF");
+    const avgOppDef = oppDF.length ? oppDF.reduce((s, p) => s + p.defending, 0) / oppDF.length : 55;
+    const avgOppMidDef = oppMF.length ? oppMF.reduce((s, p) => s + p.defending, 0) / oppMF.length : 55;
+    let threat = 0, weight = 0;
+    outfield.forEach((p) => {
+        const isForward = p.position === "FW", isMid = p.position === "MF";
+        const w = isForward ? 3 : isMid ? 2 : 0.8;
+        const attackStat = isForward ? p.shooting : isMid ? (p.passing + p.shooting) / 2 : (p.pace + p.passing) / 2;
+        const oppStat = isForward ? avgOppDef : isMid ? avgOppMidDef : (avgOppDef + avgOppMidDef) / 2;
+        const edge = attackStat - oppStat;
+        threat += (attackStat + edge * 0.35) * w;
+        weight += w;
+    });
+    return weight > 0 ? threat / weight : 50;
+}
+function computeDefenseResilience(defendXI, attackXI) {
+    const outfield = defendXI.filter((p) => p.position !== "GK");
+    if (!outfield.length)
+        return 50;
+    const oppFW = attackXI.filter((p) => p.position === "FW");
+    const oppMF = attackXI.filter((p) => p.position === "MF");
+    const avgOppShoot = oppFW.length ? oppFW.reduce((s, p) => s + p.shooting, 0) / oppFW.length : 55;
+    const avgOppMidAtk = oppMF.length ? oppMF.reduce((s, p) => s + p.shooting, 0) / oppMF.length : 55;
+    let resilience = 0, weight = 0;
+    outfield.forEach((p) => {
+        const isDef = p.position === "DF", isMid = p.position === "MF";
+        const w = isDef ? 3 : isMid ? 1.5 : 0.5;
+        const defStat = isDef ? p.defending : isMid ? (p.defending + p.passing) / 2 : p.defending;
+        const oppStat = isDef ? avgOppShoot : avgOppMidAtk;
+        const edge = defStat - oppStat;
+        resilience += (defStat + edge * 0.35) * w;
+        weight += w;
+    });
+    return weight > 0 ? resilience / weight : 50;
+}
 function poissonish(lambda) {
     const L = Math.exp(-lambda);
     let k = 0, p = 1;
@@ -1747,12 +1863,9 @@ function simulateFullMatch(homeClub, awayClub, homeXI, awayXI) {
     const hb = formationBias(homeClub.formation), ab = formationBias(awayClub.formation);
     const ht = tempoBias(homeClub.tempo), at = tempoBias(awayClub.tempo);
     const hCap = captainStrengthMult(homeClub, homeXI) * managerStrengthMult(homeClub.managerPerf), aCap = captainStrengthMult(awayClub, awayXI) * managerStrengthMult(awayClub.managerPerf);
-    const hs = teamStrength(homeXI) * 1.1 * moraleMult(homeXI) * hb.atk * ht.atk * hCap;
-    const as = teamStrength(awayXI) * moraleMult(awayXI) * ab.atk * at.atk * aCap;
-    const hDef = teamStrength(homeXI) * hb.def * ht.def * hCap, aDef = teamStrength(awayXI) * ab.def * at.def * aCap;
-    const lambdaHome = clamp(1.3 * (hs / ((hs + aDef) / 2 || 1)), 0.25, 4.2);
-    const lambdaAway = clamp(1.05 * (as / ((as + hDef) / 2 || 1)), 0.2, 3.8);
-    const homeGoalsN = poissonish(lambdaHome), awayGoalsN = poissonish(lambdaAway);
+    const hs = computeAttackThreat(homeXI, awayXI) * 1.1 * moraleMult(homeXI) * hb.atk * ht.atk * hCap;
+    const as = computeAttackThreat(awayXI, homeXI) * moraleMult(awayXI) * ab.atk * at.atk * aCap;
+    const hDef = computeDefenseResilience(homeXI, awayXI) * hb.def * ht.def * hCap, aDef = computeDefenseResilience(awayXI, homeXI) * ab.def * at.def * aCap;
     const events = [];
     const shotCounts = {}, saveCounts = {}, assistCounts = {}, concededCounts = {};
     function bumpShot(id) {
@@ -1775,49 +1888,37 @@ function simulateFullMatch(homeClub, awayClub, homeXI, awayXI) {
             return;
         concededCounts[id] = (concededCounts[id] || 0) + 1;
     }
-    for (let i = 0; i < homeGoalsN; i++) {
-        const scorer = pickScorer(homeXI);
-        const assister = pickAssister(homeXI, scorer?.id);
-        const awayGk = awayXI.find((p) => p.position === "GK");
-        events.push({ minute: randInt(1, 90), teamId: homeClub.id, scorerId: scorer?.id, scorerName: scorer?.name || "Unknown", assistId: assister?.id || null, assistName: assister?.name || null });
-        bumpShot(scorer?.id);
-        bumpAssist(assister?.id);
-        bumpConceded(awayGk?.id);
-    }
-    for (let i = 0; i < awayGoalsN; i++) {
-        const scorer = pickScorer(awayXI);
-        const assister = pickAssister(awayXI, scorer?.id);
-        const homeGk = homeXI.find((p) => p.position === "GK");
-        events.push({ minute: randInt(1, 90), teamId: awayClub.id, scorerId: scorer?.id, scorerName: scorer?.name || "Unknown", assistId: assister?.id || null, assistName: assister?.name || null });
-        bumpShot(scorer?.id);
-        bumpAssist(assister?.id);
-        bumpConceded(homeGk?.id);
-    }
-    // non-scoring shots, calibrated to match the live per-minute engine's totals over a full 90'
-    const extraShotsHome = poissonish(lambdaHome * 1.8 + 1.8);
-    const extraShotsAway = poissonish(lambdaAway * 1.8 + 1.8);
-    for (let i = 0; i < extraShotsHome; i++) {
-        const shooter = pickScorer(homeXI);
+    // Shots are the real unit here, not goals — matching the live match engine exactly, so a
+    // background AI match plays out to the same real logic as the one you're actually watching,
+    // not a cheaper approximation. A shot count is drawn first (home gets a genuine advantage in
+    // chances created), then every shot resolves individually: who's taking it, who's facing it
+    // in goal, and whether it actually goes in — a goal is what happens when a shot succeeds,
+    // not a number decided in advance and handed to whoever had the best shooting stat after.
+    const shotRateHome = clamp(14.5 * (hs / ((hs + aDef) / 2 || 1)), 3, 24);
+    const shotRateAway = clamp(11.7 * (as / ((as + hDef) / 2 || 1)), 2.5, 21);
+    const shotsHome = poissonish(shotRateHome);
+    const shotsAway = poissonish(shotRateAway);
+    function resolveShot(attackXI, defendXI, teamId) {
+        const shooter = pickScorer(attackXI);
         if (!shooter)
-            continue;
+            return;
+        const assister = pickAssister(attackXI, shooter.id);
         bumpShot(shooter.id);
-        if (Math.random() < 0.55) {
-            const gk = awayXI.find((p) => p.position === "GK");
-            if (gk)
-                bumpSave(gk.id);
+        const gk = defendXI.find((p) => p.position === "GK");
+        const conv = clamp(0.085 + (shooter.shooting - 60) * 0.0032 - ((gk?.goalkeeping || 60) - 60) * 0.0018 + (assister ? (assister.passing - 60) * 0.0008 : 0), 0.02, 0.55);
+        if (Math.random() < conv) {
+            events.push({ minute: randInt(1, 90), teamId, scorerId: shooter.id, scorerName: shooter.name, assistId: assister?.id || null, assistName: assister?.name || null });
+            bumpAssist(assister?.id);
+            bumpConceded(gk?.id);
+        }
+        else if (Math.random() < 0.55) {
+            bumpSave(gk?.id);
         }
     }
-    for (let i = 0; i < extraShotsAway; i++) {
-        const shooter = pickScorer(awayXI);
-        if (!shooter)
-            continue;
-        bumpShot(shooter.id);
-        if (Math.random() < 0.55) {
-            const gk = homeXI.find((p) => p.position === "GK");
-            if (gk)
-                bumpSave(gk.id);
-        }
-    }
+    for (let i = 0; i < shotsHome; i++)
+        resolveShot(homeXI, awayXI, homeClub.id);
+    for (let i = 0; i < shotsAway; i++)
+        resolveShot(awayXI, homeXI, awayClub.id);
     events.sort((a, b) => a.minute - b.minute);
     const injuries = [];
     [...homeXI, ...awayXI].forEach((p) => {
@@ -1834,7 +1935,9 @@ function simulateFullMatch(homeClub, awayClub, homeXI, awayXI) {
         if (ac)
             cards.push({ playerId: ac.player.id, isRed: ac.isRed });
     }
-    return { homeGoals: homeGoalsN, awayGoals: awayGoalsN, events, injuries, cards, shotCounts, saveCounts, assistCounts, concededCounts };
+    const homeGoalsFinal = events.filter((e) => e.teamId === homeClub.id).length;
+    const awayGoalsFinal = events.filter((e) => e.teamId === awayClub.id).length;
+    return { homeGoals: homeGoalsFinal, awayGoals: awayGoalsFinal, events, injuries, cards, shotCounts, saveCounts, assistCounts, concededCounts };
 }
 function staminaDrain(position, physical) {
     const base = position === "GK" ? randInt(1, 3) : position === "DF" ? randInt(5, 9) : position === "MF" ? randInt(7, 12) : randInt(9, 15);
@@ -1868,13 +1971,36 @@ function teamMatchStats(m) {
         homeYellows, awayYellows, homeReds, awayReds,
     };
 }
-function livePlayerRating(playerId, isGK, goalsFor, statBox, stamina) {
-    const s = statBox[playerId] || { shots: 0, saves: 0 };
+function livePlayerRating(player, isGK, goalsFor, assistsFor, statBox, stamina, teamGoalsConceded) {
+    // Goals and shots were always going to reward attackers — the real gap was everyone else.
+    // A defender or keeper now gets genuine credit for a clean sheet, scaled by how good a
+    // defender they actually are, not a flat bonus regardless of ability. A heavy defeat now
+    // actually costs defensive players something too. And a quiet game with no goal, assist, or
+    // shot no longer flatlines everyone at exactly 6.0 — a genuinely good all-round performance
+    // (passing for midfielders, defending for defenders) nudges the rating a little either way,
+    // reflecting real ability even without one standout moment.
+    const s = statBox[player.id] || { shots: 0, saves: 0 };
     let rating = 6.0;
     rating += goalsFor * 1.2;
+    rating += (assistsFor || 0) * 0.7;
     rating += Math.min(s.shots, 5) * 0.15;
     if (isGK)
         rating += Math.min(s.saves, 8) * 0.4;
+    if (teamGoalsConceded === 0) {
+        if (player.position === "DF")
+            rating += 0.4 + (player.defending - 60) * 0.012;
+        else if (player.position === "GK")
+            rating += 0.3 + (player.defending - 60) * 0.008;
+        else if (player.position === "MF")
+            rating += 0.2;
+    }
+    else if (teamGoalsConceded >= 3 && (player.position === "DF" || player.position === "GK")) {
+        rating -= 0.3;
+    }
+    if (goalsFor === 0 && !assistsFor && s.shots === 0) {
+        const relevantStat = player.position === "GK" ? player.goalkeeping : player.position === "DF" ? player.defending : player.position === "FW" ? player.shooting : player.passing;
+        rating += ((relevantStat || 65) - 65) * 0.01;
+    }
     const st = stamina ?? 100;
     if (st < 40)
         rating -= ((40 - st) / 40) * 1.2;
@@ -1945,16 +2071,14 @@ function simulateSegment(homeClub, awayClub, homeXI, awayXI, fromMin, toMin) {
     // Team talks and manager shout-outs apply a temporary, real multiplier here — genuinely
     // affecting goal threat and solidity for a stretch of the match, not just cosmetic.
     const hTalk = homeClub.teamTalkMult || 1, aTalk = awayClub.teamTalkMult || 1;
-    const hs = teamStrength(homeXI) * 1.1 * moraleMult(homeXI) * hb.atk * ht.atk * hCap * hTalk;
-    const as = teamStrength(awayXI) * moraleMult(awayXI) * ab.atk * at.atk * aCap * aTalk;
-    const hDef = teamStrength(homeXI) * hb.def * ht.def * hCap * hTalk, aDef = teamStrength(awayXI) * ab.def * at.def * aCap * aTalk;
+    const hs = computeAttackThreat(homeXI, awayXI) * 1.1 * moraleMult(homeXI) * hb.atk * ht.atk * hCap * hTalk;
+    const as = computeAttackThreat(awayXI, homeXI) * moraleMult(awayXI) * ab.atk * at.atk * aCap * aTalk;
+    const hDef = computeDefenseResilience(homeXI, awayXI) * hb.def * ht.def * hCap * hTalk, aDef = computeDefenseResilience(awayXI, homeXI) * ab.def * at.def * aCap * aTalk;
     const span = (toMin - fromMin) / 90;
     // stamina drain, injury chance, and card chance below were tuned assuming ~15-minute
     // segments (6 per match) — scale them to whatever window this call actually covers,
     // since matchday now calls this once per minute during the live clock.
     const spanFactor = (toMin - fromMin) / 15;
-    const lambdaHome = clamp(1.3 * (hs / ((hs + aDef) / 2 || 1)), 0.25, 4.2) * span;
-    const lambdaAway = clamp(1.05 * (as / ((as + hDef) / 2 || 1)), 0.2, 3.8) * span;
     const events = [];
     const statDelta = {};
     function bump(id, key) {
@@ -1964,59 +2088,41 @@ function simulateSegment(homeClub, awayClub, homeXI, awayXI, fromMin, toMin) {
             statDelta[id] = { shots: 0, saves: 0, assists: 0, conceded: 0 };
         statDelta[id][key] += 1;
     }
-    const hg = poissonish(lambdaHome), ag = poissonish(lambdaAway);
-    for (let i = 0; i < hg; i++) {
-        const scorer = pickScorer(homeXI);
-        const assister = pickAssister(homeXI, scorer?.id);
-        const awayGk = awayXI.find((p) => p.position === "GK");
-        events.push({ minute: randInt(fromMin + 1, toMin), teamId: homeClub.id, scorerId: scorer?.id, scorerName: scorer?.name || "Unknown", assistId: assister?.id || null, assistName: assister?.name || null, kind: "goal" });
-        if (scorer)
-            bump(scorer.id, "shots");
-        if (assister)
-            bump(assister.id, "assists");
-        if (awayGk)
-            bump(awayGk.id, "conceded");
-    }
-    for (let i = 0; i < ag; i++) {
-        const scorer = pickScorer(awayXI);
-        const assister = pickAssister(awayXI, scorer?.id);
-        const homeGk = homeXI.find((p) => p.position === "GK");
-        events.push({ minute: randInt(fromMin + 1, toMin), teamId: awayClub.id, scorerId: scorer?.id, scorerName: scorer?.name || "Unknown", assistId: assister?.id || null, assistName: assister?.name || null, kind: "goal" });
-        if (scorer)
-            bump(scorer.id, "shots");
-        if (assister)
-            bump(assister.id, "assists");
-        if (homeGk)
-            bump(homeGk.id, "conceded");
-    }
-    // extra shots that don't result in a goal — some saved, some off target.
-    // The flat +0.3 baseline was tuned for the old 15-minute-segment design (6 calls per
-    // match); with the live per-minute clock calling this 90 times, that baseline needs
-    // the same spanFactor scaling as stamina/injuries/cards, or it massively over-produces.
-    const extraShotsHome = poissonish(lambdaHome * 1.8 + 0.3 * spanFactor);
-    const extraShotsAway = poissonish(lambdaAway * 1.8 + 0.3 * spanFactor);
-    for (let i = 0; i < extraShotsHome; i++) {
-        const shooter = pickScorer(homeXI);
+    // Shots are the real unit here, not goals — a shot count is drawn first (home gets a real,
+    // tuned advantage in raw chances created, not just conversion), then every shot resolves
+    // individually: who's taking it, who's facing it in goal, and whether it actually goes in.
+    // A goal is what happens when a shot succeeds, not a number decided in advance and handed to
+    // whoever happened to have the best shooting stat afterward. Exactly matching the constants
+    // validated in simulateFullMatch, so the match you're watching and every background match
+    // in the league play out to the same real logic, not two different approximations.
+    const shotRateHome = clamp(14.5 * (hs / ((hs + aDef) / 2 || 1)), 3, 24) * span;
+    const shotRateAway = clamp(11.7 * (as / ((as + hDef) / 2 || 1)), 2.5, 21) * span;
+    const shotsHome = poissonish(shotRateHome);
+    const shotsAway = poissonish(shotRateAway);
+    function resolveShot(attackXI, defendXI, teamId) {
+        const shooter = pickScorer(attackXI);
         if (!shooter)
-            continue;
+            return;
+        const assister = pickAssister(attackXI, shooter.id);
         bump(shooter.id, "shots");
-        if (Math.random() < 0.55) {
-            const gk = awayXI.find((p) => p.position === "GK");
+        const gk = defendXI.find((p) => p.position === "GK");
+        const conv = clamp(0.085 + (shooter.shooting - 60) * 0.0032 - ((gk?.goalkeeping || 60) - 60) * 0.0018 + (assister ? (assister.passing - 60) * 0.0008 : 0), 0.02, 0.55);
+        if (Math.random() < conv) {
+            events.push({ minute: randInt(fromMin + 1, toMin), teamId, scorerId: shooter.id, scorerName: shooter.name, assistId: assister?.id || null, assistName: assister?.name || null, kind: "goal" });
+            if (assister)
+                bump(assister.id, "assists");
+            if (gk)
+                bump(gk.id, "conceded");
+        }
+        else if (Math.random() < 0.55) {
             if (gk)
                 bump(gk.id, "saves");
         }
     }
-    for (let i = 0; i < extraShotsAway; i++) {
-        const shooter = pickScorer(awayXI);
-        if (!shooter)
-            continue;
-        bump(shooter.id, "shots");
-        if (Math.random() < 0.55) {
-            const gk = homeXI.find((p) => p.position === "GK");
-            if (gk)
-                bump(gk.id, "saves");
-        }
-    }
+    for (let i = 0; i < shotsHome; i++)
+        resolveShot(homeXI, awayXI, homeClub.id);
+    for (let i = 0; i < shotsAway; i++)
+        resolveShot(awayXI, homeXI, awayClub.id);
     // Penalties are a real, distinct moment with their own much higher conversion chance — not
     // just baked into the general shot volume — and a designated penalty taker genuinely
     // improves the odds, same spirit as the set-piece taker bonus already applied to their stats.
@@ -2075,8 +2181,8 @@ function simulateSegment(homeClub, awayClub, homeXI, awayXI, fromMin, toMin) {
     if (ac)
         cardEvents.push({ ...ac, teamId: awayClub.id });
     // signals for the live ball tracker — how much each side threatened this tick, and overall balance of play
-    const homeShotsThisSeg = hg + extraShotsHome;
-    const awayShotsThisSeg = ag + extraShotsAway;
+    const homeShotsThisSeg = shotsHome;
+    const awayShotsThisSeg = shotsAway;
     const pressureBias = clamp((hs - as) / ((hs + as) || 1), -1, 1);
     events.sort((a, b) => a.minute - b.minute);
     return { events, injured, statDelta, staminaDelta, cardEvents, homeShotsThisSeg, awayShotsThisSeg, pressureBias };
@@ -2246,14 +2352,17 @@ function applyClubMatchResult(c, gf, ga) {
         fanPopularity, unbeatenStreak, bestUnbeatenStreak,
     };
 }
-function applyPopularityOnly(c, gf, ga) {
+function applyPopularityOnly(c, gf, ga, isDerby) {
     let fanPopularity = c.fanPopularity ?? 50;
+    // A derby carries real extra stakes — winning one means more to the fans than an ordinary
+    // three points, and losing one stings harder too.
+    const derbyMult = isDerby ? 1.8 : 1;
     if (gf > ga)
-        fanPopularity = clamp(fanPopularity + 2.5 + gf * 0.3, 5, 100);
+        fanPopularity = clamp(fanPopularity + (2.5 + gf * 0.3) * derbyMult, 5, 100);
     else if (gf === ga)
         fanPopularity = clamp(fanPopularity + 0.3, 5, 100);
     else
-        fanPopularity = clamp(fanPopularity - 1, 5, 100);
+        fanPopularity = clamp(fanPopularity - 1 * derbyMult, 5, 100);
     return { ...c, fanPopularity };
 }
 function weeklyWageBill(clubId, players) {
@@ -2267,6 +2376,10 @@ function refusalChance(player, sellerSquad, sellerClub, buyerClub, mult) {
     let ch = mult >= 1.4 ? 0.1 : mult >= 1.0 ? 0.32 : 0.6;
     if (isStarPlayer(player, sellerSquad))
         ch += 0.25;
+    // A genuinely famous name is harder to let go of even beyond raw ability — fans and the
+    // board both notice when a well-known player leaves, not just when the squad's best player does.
+    if (playerReputation(player, sellerClub) >= 75)
+        ch += 0.15;
     if (sellerSquad.length < 16)
         ch += 0.15;
     if (buyerClub && sellerClub) {
@@ -2303,9 +2416,20 @@ function isBreakoutCandidate(p) {
     return p.age <= 23 && ((p.potential ?? p.overall) - p.overall) >= 8;
 }
 function BreakoutBadge({ player }) {
+    if (player.isWonderkid)
+        return React.createElement("span", { className: "text-[9px] font-black ml-1", style: { color: "#B8860B" }, title: "A genuine wonderkid" }, "\u2B50 WONDERKID");
     if (!isBreakoutCandidate(player))
         return null;
     return React.createElement("span", { className: "text-[9px] font-bold ml-1", style: { color: C.green }, title: "High potential for their age" }, "\u2191 ONE TO WATCH");
+}
+function scoutedPotentialRange(player, scoutSkill) {
+    // A scout can watch someone play and tell you exactly how good they are right now — overall
+    // stays exact for that reason. Potential is a projection about the future, which is
+    // genuinely uncertain even for a good scout, and only a really elite one narrows it down to
+    // something close to a real number. A poor scout gives you little more than a rough guess.
+    const trueValue = player.potential ?? player.overall;
+    const margin = Math.round(16 - ((scoutSkill || 50) / 100) * 13);
+    return { low: clamp(trueValue - margin, player.overall, 99), high: clamp(trueValue + margin, player.overall, 99) };
 }
 function formatMoney(n) {
     const sign = n < 0 ? "-" : "";
@@ -2372,17 +2496,117 @@ function stadiumNameFor(club) {
     const idx = hashStr(club.id) % STADIUM_NAME_TEMPLATES.length;
     return STADIUM_NAME_TEMPLATES[idx].replace("{club}", club.name).replace("{city}", club.city || club.name);
 }
+const CLUB_COLORS = {
+    arsenal: { primary: "#EF0107", secondary: "#FFFFFF" }, fcbayernmnchen: { primary: "#DC052D", secondary: "#0066B2" },
+    liverpool: { primary: "#C8102E", secondary: "#F6EB61" }, manchestercity: { primary: "#6CABDD", secondary: "#1C2C5B" },
+    manchesterunited: { primary: "#DA291C", secondary: "#FBE122" }, realmadrid: { primary: "#FEBE10", secondary: "#00529F" },
+    celtic: { primary: "#018749", secondary: "#FFFFFF", pattern: "hoops" }, chelsea: { primary: "#034694", secondary: "#FFFFFF" },
+    newcastleunited: { primary: "#241F20", secondary: "#FFFFFF", pattern: "stripes" }, tottenhamhotspur: { primary: "#FFFFFF", secondary: "#132257" },
+    astonvilla: { primary: "#670E36", secondary: "#95BFE5" }, rangersfc: { primary: "#1D428A", secondary: "#FFFFFF" },
+    ajax: { primary: "#D2122E", secondary: "#FFFFFF" }, fcporto: { primary: "#00447C", secondary: "#FFFFFF" },
+    leedsunited: { primary: "#FFFFFF", secondary: "#1D428A" }, aberdeen: { primary: "#D71920", secondary: "#FFFFFF" },
+    hibernian: { primary: "#00A651", secondary: "#FFFFFF" }, hullcity: { primary: "#F18A00", secondary: "#000000" },
+    middlesbrough: { primary: "#DA291C", secondary: "#FFFFFF" }, norwichcity: { primary: "#FFF200", secondary: "#00A650" },
+    prestonnorthend: { primary: "#FFFFFF", secondary: "#1B1464" }, sheffieldwednesday: { primary: "#0064B0", secondary: "#FFFFFF", pattern: "stripes" },
+    sunderland: { primary: "#EB172B", secondary: "#FFFFFF", pattern: "stripes" }, westbromwichalbion: { primary: "#122F67", secondary: "#FFFFFF", pattern: "stripes" },
+    feyenoord: { primary: "#EE1010", secondary: "#FFFFFF" }, sportingcp: { primary: "#00713C", secondary: "#FFFFFF" },
+    boltonwanderers: { primary: "#FFFFFF", secondary: "#1C3F94" }, portsmouth: { primary: "#001489", secondary: "#FFFFFF" },
+    wrexham: { primary: "#DC1E35", secondary: "#FFFFFF" }, barnsley: { primary: "#D2122E", secondary: "#FFFFFF" },
+    blackpoolfc: { primary: "#F68712", secondary: "#000000" }, charltonathletic: { primary: "#D4021D", secondary: "#000000" },
+    dundeeunitedfc: { primary: "#F47920", secondary: "#000000" }, peterboroughunited: { primary: "#1B5DA6", secondary: "#FFFFFF" },
+    readingfc: { primary: "#004494", secondary: "#FFFFFF" }, stmirren: { primary: "#000000", secondary: "#FFFFFF" },
+    clubbruggekv: { primary: "#0E5FAD", secondary: "#000000" }, rscanderlecht: { primary: "#5B2D8C", secondary: "#FFFFFF" },
+    accringtonstanley: { primary: "#DA291C", secondary: "#FFFFFF" }, ayrunited: { primary: "#FFFFFF", secondary: "#000000" },
+    colchesterunited: { primary: "#0B4EA2", secondary: "#FFFFFF" }, crawleytown: { primary: "#DA291C", secondary: "#000000" },
+    doncasterrovers: { primary: "#DA291C", secondary: "#FFFFFF" }, falkirk: { primary: "#001489", secondary: "#FFFFFF" },
+    grimsbytown: { primary: "#000000", secondary: "#FFFFFF" }, mansfieldtown: { primary: "#FDB913", secondary: "#1C3F94" },
+    nottscounty: { primary: "#000000", secondary: "#FFFFFF", pattern: "stripes" }, walsall: { primary: "#D4021D", secondary: "#FFFFFF" },
+    fcbarcelona: { primary: "#A50044", secondary: "#004D98", pattern: "stripes" }, parissaintgermain: { primary: "#004170", secondary: "#DA291C" },
+    intermilan: { primary: "#0068A8", secondary: "#000000", pattern: "stripes" }, juventus: { primary: "#000000", secondary: "#FFFFFF", pattern: "stripes" },
+    benfica: { primary: "#E5202E", secondary: "#FFFFFF" }, psveindhoven: { primary: "#ED1C24", secondary: "#FFFFFF" },
+    galatasaray: { primary: "#FDB913", secondary: "#A50044" }, marseille: { primary: "#2FA0DA", secondary: "#FFFFFF" },
+    birminghamcity: { primary: "#0000FF", secondary: "#FFFFFF" }, sheffieldunited: { primary: "#EE2737", secondary: "#FFFFFF", pattern: "stripes" },
+    swanseacity: { primary: "#FFFFFF", secondary: "#000000" }, derbycounty: { primary: "#FFFFFF", secondary: "#000000" },
+    bradfordcity: { primary: "#8A1538", secondary: "#FDB913" }, bristolrovers: { primary: "#1B5DA6", secondary: "#FFFFFF" },
+    rotherhamunited: { primary: "#DA291C", secondary: "#FFFFFF" }, newportcounty: { primary: "#FDB913", secondary: "#000000" },
+};
+const CUSTOM_SLOT_PALETTE = [
+    { primary: "#C0392B", secondary: "#FFFFFF" }, { primary: "#2980B9", secondary: "#F1C40F" }, { primary: "#27AE60", secondary: "#FFFFFF" },
+    { primary: "#8E44AD", secondary: "#FFFFFF" }, { primary: "#D35400", secondary: "#2C3E50" }, { primary: "#16A085", secondary: "#FFFFFF" },
+    { primary: "#2C3E50", secondary: "#E74C3C" }, { primary: "#C2185B", secondary: "#FFFFFF" }, { primary: "#7F8C8D", secondary: "#000000" },
+    { primary: "#F39C12", secondary: "#000000" }, { primary: "#1B5DA6", secondary: "#FDB913" }, { primary: "#000000", secondary: "#FFFFFF" },
+];
+function realKitFor(clubId) {
+    // Real, recognisable default colours for every known club — Liverpool is red, not whatever a
+    // hash happened to land on. The handful of fictional Sunday League slots (which have no real
+    // colours to match) get a fixed, curated palette instead of a raw hash too, so the choice is
+    // deliberate and still visually distinct, not left to chance either way.
+    if (CLUB_COLORS[clubId])
+        return CLUB_COLORS[clubId];
+    const seed = hashStr(`${clubId}_kit`);
+    return CUSTOM_SLOT_PALETTE[seed % CUSTOM_SLOT_PALETTE.length];
+}
+function kitFor(club, isHome) {
+    // A real home/away distinction — each club has its own real (or curated) default colours,
+    // with a genuine second kit derived from swapping/adjusting them, and either can be fully
+    // overridden per club via the colour picker or the Editor.
+    const override = isHome ? club.homeKit : club.awayKit;
+    if (override)
+        return override;
+    const real = realKitFor(club.id);
+    if (isHome)
+        return real;
+    // Away default: swap primary/secondary so it's genuinely a different, recognisable kit
+    // rather than an identical repaint, unless that swap would be too close to call, in which
+    // case fall back to a neutral grey/dark kit — the real-world "clashing colours" solution.
+    if (real.primary === real.secondary)
+        return { primary: "#4A4A4A", secondary: "#FFFFFF", pattern: "solid" };
+    return { primary: real.secondary, secondary: real.primary, pattern: real.pattern || "solid" };
+}
+const KIT_PATTERNS = {
+    solid: { label: "Solid" },
+    stripes: { label: "Stripes" },
+    hoops: { label: "Hoops" },
+    halves: { label: "Halves" },
+};
+function kitBackground(kit) {
+    // A genuine visual pattern, not just a flat colour swatch — the same handful of real-world
+    // kit designs most shirts actually use, built from the same two colours rather than needing
+    // any new artwork.
+    const p = kit.pattern || "solid";
+    if (p === "stripes")
+        return `repeating-linear-gradient(90deg, ${kit.primary} 0px, ${kit.primary} 6px, ${kit.secondary} 6px, ${kit.secondary} 12px)`;
+    if (p === "hoops")
+        return `repeating-linear-gradient(0deg, ${kit.primary} 0px, ${kit.primary} 6px, ${kit.secondary} 6px, ${kit.secondary} 12px)`;
+    if (p === "halves")
+        return `linear-gradient(90deg, ${kit.primary} 50%, ${kit.secondary} 50%)`;
+    return kit.primary;
+}
 function clubColor(clubId) {
     let hash = 0;
     for (let i = 0; i < clubId.length; i++)
         hash = (hash * 31 + clubId.charCodeAt(i)) >>> 0;
     return `hsl(${hash % 360}, 55%, 40%)`;
 }
+function GuideSection({ title, sub, dark, defaultOpen, children }) {
+    const [open, setOpen] = useState(!!defaultOpen);
+    const borderColor = dark ? "#2A3A2D" : C.cardAlt;
+    return (React.createElement("div", { className: "border-b", style: { borderColor } },
+        React.createElement("button", { onClick: () => setOpen((o) => !o), className: "w-full flex items-center justify-between py-2.5 text-left" },
+            React.createElement("span", { className: "text-xs font-bold", style: { color: dark ? "#FFFFFF" : C.text } }, title),
+            React.createElement("span", { className: "text-sm font-bold flex-shrink-0 ml-2", style: { color: sub } }, open ? "−" : "+")),
+        open && React.createElement("div", { className: "text-xs pb-3", style: { color: sub } }, children)));
+}
 function ClubCrest({ club, size = 20 }) {
     if (!club)
         return null;
     const initials = club.name.split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
-    return (React.createElement("span", { className: "rounded-full inline-flex items-center justify-center flex-shrink-0 font-black", style: { width: size, height: size, backgroundColor: clubColor(club.id), color: "#FFFFFF", fontSize: Math.round(size * 0.4) } }, initials));
+    const kit = kitFor(club, true);
+    // The pattern looks great on the larger kit swatch, but stripes/hoops cutting through a tiny
+    // set of initials makes them genuinely hard to read — this stays a solid colour specifically
+    // so the crest keeps doing its actual job of being glanceable at a small size.
+    const bg = kit.primary;
+    return (React.createElement("span", { className: "rounded-full inline-flex items-center justify-center flex-shrink-0 font-black", style: { width: size, height: size, backgroundColor: bg, color: kit.secondary, border: `1px solid ${kit.secondary}55`, fontSize: Math.round(size * 0.4) } }, initials));
 }
 function Pill({ active, onClick, children }) {
     return (React.createElement("button", { onClick: onClick, className: "px-3 py-1.5 rounded-full text-[11px] font-bold border transition-colors", style: active ? { backgroundColor: C.green, borderColor: C.green, color: "#FFFFFF" } : { borderColor: C.border, color: C.sub, backgroundColor: C.card } }, children));
@@ -2436,7 +2660,7 @@ function StatBar({ label, value }) {
         React.createElement("div", { className: "h-1.5 rounded-full overflow-hidden", style: { backgroundColor: C.cardAlt } },
             React.createElement("div", { className: "h-full", style: { width: `${value}%`, background: `linear-gradient(90deg, ${C.green}, ${C.amber})` } }))));
 }
-function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosition, homeName, awayName, secondHalf, minute, reduceMotion, commentary }) {
+function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosition, homeName, awayName, secondHalf, minute, reduceMotion, commentary, homeKit, awayKit }) {
     // Real formation shape, own half only — this is the version that actually matched the Squad
     // setup screen and didn't collide. Teams swap ends at half-time, same as a real match.
     function slotDots(xi, formation, onRight) {
@@ -2514,16 +2738,16 @@ function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosi
             React.createElement("div", { className: "absolute", style: { left: 2, top: "28%", width: 8, height: "44%", border: "2px solid rgba(255,255,255,0.35)", borderLeft: "none" } }),
             React.createElement("div", { className: "absolute", style: { right: 2, top: "28%", width: 8, height: "44%", border: "2px solid rgba(255,255,255,0.35)", borderRight: "none" } }),
             allDots.map((d, i) => (React.createElement("div", { key: `${d.team}-${i}`, className: "absolute flex flex-col items-center", style: { left: `${d.x}%`, top: `${d.y}%`, transform: "translate(-50%,-50%)", transition: "left 1.4s ease-in-out, top 1.4s ease-in-out" } },
-                React.createElement("div", { className: "rounded-full flex items-center justify-center text-[8px] font-black", style: { width: 17, height: 17, backgroundColor: d.team === "home" ? C.green : C.amber, border: "1.5px solid #FFFFFF", color: "#FFFFFF" } }, d.player.jerseyNumber ?? ""),
+                React.createElement("div", { className: "rounded-full flex items-center justify-center text-[8px] font-black", style: { width: 17, height: 17, backgroundColor: d.team === "home" ? (homeKit?.primary || C.green) : (awayKit?.primary || C.amber), border: `1.5px solid ${d.team === "home" ? (homeKit?.secondary || "#FFFFFF") : (awayKit?.secondary || "#FFFFFF")}`, color: d.team === "home" ? (homeKit?.secondary || "#FFFFFF") : (awayKit?.secondary || "#FFFFFF") } }, d.player.jerseyNumber ?? ""),
                 React.createElement("div", { className: "text-[7px] font-bold text-white mt-0.5 whitespace-nowrap", style: { textShadow: "0 0 2px rgba(0,0,0,0.8)" } }, d.player.name.split(" ").slice(-1)[0])))),
             React.createElement("div", { style: { position: "absolute", top: `${ballTop}%`, left: `${ballLeft}%`, transform: "translate(-50%, -140%)", transition: "left 1.2s linear, top 1.2s linear", fontSize: 16, zIndex: 10 } }, "\u26BD")),
         nearestPlayer && (React.createElement("div", { className: "py-1.5 px-2 text-[10px] font-bold text-center", style: { backgroundColor: "rgba(0,0,0,0.35)", color: "#FFFFFF", minHeight: 20 } }, commentary && commentary[0] ? commentary[0].text : `⚽ ${nearestPlayer.player.name}`)),
         React.createElement("div", { className: "flex items-center justify-between px-3 py-1.5 text-[9px] font-bold", style: { backgroundColor: "rgba(0,0,0,0.2)", color: "#FFFFFF" } },
             React.createElement("span", null,
-                React.createElement("span", { className: "inline-block rounded-full mr-1", style: { width: 8, height: 8, backgroundColor: C.green } }),
+                React.createElement("span", { className: "inline-block rounded-full mr-1", style: { width: 8, height: 8, backgroundColor: homeKit?.primary || C.green } }),
                 homeName),
             React.createElement("span", null,
-                React.createElement("span", { className: "inline-block rounded-full mr-1", style: { width: 8, height: 8, backgroundColor: C.amber } }),
+                React.createElement("span", { className: "inline-block rounded-full mr-1", style: { width: 8, height: 8, backgroundColor: awayKit?.primary || C.amber } }),
                 awayName))));
 }
 function recentForm(clubId, matchHistory, count = 5) {
@@ -2585,8 +2809,10 @@ function PlayerStatsTable({ xi, appeared, teamId, events, playerStats, stamina }
     const list = appeared && appeared.length ? appeared : xi;
     const rows = list.map((p) => {
         const goals = events.filter((e) => e.kind === "goal" && e.scorerId === p.id).length;
+        const assists = events.filter((e) => e.kind === "goal" && e.assistId === p.id).length;
+        const conceded = events.filter((e) => e.kind === "goal" && e.teamId !== teamId).length;
         const st = stamina[p.id] ?? 100;
-        const rating = livePlayerRating(p.id, p.position === "GK", goals, playerStats, st);
+        const rating = livePlayerRating(p, p.position === "GK", goals, assists, playerStats, st, conceded);
         const s = playerStats[p.id] || { shots: 0, saves: 0 };
         return { p, goals, st, rating, shots: s.shots, saves: s.saves, subbedOff: !liveIds.has(p.id) };
     }).sort((a, b) => b.rating - a.rating);
@@ -2657,7 +2883,7 @@ function Pitch({ club, squadPlayers, onAssign, onSetInstruction }) {
     const usedIds = new Set(Object.values(lineup).filter(Boolean));
     const activeSlot = slots.find((s) => s.id === openSlot);
     return (React.createElement("div", null,
-        React.createElement("div", { className: "relative w-full rounded-lg overflow-hidden border", style: { paddingBottom: "135%", backgroundColor: "#2E7D4F", borderColor: C.border } },
+        React.createElement("div", { className: "relative w-full max-w-md mx-auto rounded-lg overflow-hidden border", style: { paddingBottom: "135%", backgroundColor: "#2E7D4F", borderColor: C.border } },
             React.createElement("div", { className: "absolute inset-2 border-2 rounded", style: { borderColor: "rgba(255,255,255,0.4)" } }),
             React.createElement("div", { className: "absolute left-2 right-2 border-t-2", style: { top: "50%", borderColor: "rgba(255,255,255,0.4)" } }),
             React.createElement("div", { className: "absolute rounded-full border-2", style: { borderColor: "rgba(255,255,255,0.4)", width: "26%", paddingBottom: "26%", left: "37%", top: "42%" } }),
@@ -2733,12 +2959,16 @@ function ClubDetail({ club, squad, history, clubsById, onBack, onSign, onView, w
             React.createElement("div", { className: "text-xl font-bold mb-1 flex items-center gap-2" },
                 React.createElement(ClubCrest, { club: club, size: 24 }),
                 club.name),
-            React.createElement("div", { className: "flex items-center justify-between mb-3" },
+            React.createElement("div", { className: "flex items-center justify-between mb-1" },
                 React.createElement("div", { className: "text-[10px]", style: { color: C.sub } },
                     club.city,
                     " \u00B7 Formation ",
                     club.formation || "not set"),
                 React.createElement(FormDots, { clubId: club.id, matchHistory: history })),
+            (() => { const info = CLUB_IDENTITIES[clubIdentityFor(club)]; return (React.createElement("div", { className: "text-[10px] mb-3", title: info.desc },
+                info.icon,
+                " ",
+                React.createElement("span", { className: "font-bold" }, info.label))); })(),
             React.createElement("div", { className: "grid grid-cols-2 gap-2" },
                 React.createElement("div", { className: "rounded-lg p-2.5", style: { backgroundColor: C.cardAlt } },
                     React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, "BUDGET"),
@@ -2877,6 +3107,11 @@ function App() {
     const [controlled, setControlled] = useState([]);
     const [activeIdx, setActiveIdx] = useState(0);
     const [tab, setTab] = useState("play");
+    const [lineupBlockMessage, setLineupBlockMessage] = useState(null);
+    const [financeChartMode, setFinanceChartMode] = useState("weekly");
+    const [fatalError, setFatalError] = useState(null);
+    if (fatalError)
+        throw fatalError;
     useEffect(() => {
         // This whole app is one page with sections shown/hidden by state, not real browser
         // navigation — so switching tabs or screens never naturally resets scroll position the
@@ -2906,7 +3141,7 @@ function App() {
     const [showSlotPicker, setShowSlotPicker] = useState(false);
     const [confirmingDeleteSlot, setConfirmingDeleteSlot] = useState(null);
     const [confirmingLoadSlot, setConfirmingLoadSlot] = useState(null);
-    const [squadFilter, setSquadFilter] = useState({ pos: "all", sort: "overall" });
+    const [squadFilter, setSquadFilter] = useState({ pos: "all", sort: "position" });
     const [viewingPlayerId, setViewingPlayerId] = useState(null);
     const [renamingId, setRenamingId] = useState(null);
     const [editingJerseyId, setEditingJerseyId] = useState(null);
@@ -3259,6 +3494,37 @@ function App() {
             return pid && squad.some((p) => p.id === pid && !p.injuredWeeks && !p.suspendedMatches);
         });
     }
+    function lineupIssues(club) {
+        // Same check as lineupIsComplete, but explains exactly what's missing instead of a bare
+        // true/false — this is what actually shows the person what's wrong, rather than a silent
+        // redirect back to the Play tab with no explanation at all.
+        if (!club)
+            return ["No club selected."];
+        if (!club.formation)
+            return ["No formation selected yet."];
+        const slots = (FORMATIONS[club.formation] || FORMATIONS["4-4-2"]).slots;
+        const squad = playersOfClub(club.id);
+        const lineup = club.lineup || {};
+        const issues = [];
+        slots.forEach((slot) => {
+            const pid = lineup[slot.id];
+            if (!pid) {
+                issues.push(`${slot.id} is empty.`);
+                return;
+            }
+            const p = squad.find((pl) => pl.id === pid);
+            if (!p) {
+                issues.push(`${slot.id} has a player no longer in your squad.`);
+            }
+            else if (p.injuredWeeks) {
+                issues.push(`${slot.id} (${p.name}) is injured.`);
+            }
+            else if (p.suspendedMatches) {
+                issues.push(`${slot.id} (${p.name}) is suspended.`);
+            }
+        });
+        return issues;
+    }
     function openMatch(fixtureOrTie, isCup) {
         // Refuse to start a match for either side if a controlled club hasn't chosen a formation
         // yet, or has a formation but hasn't actually filled every slot — otherwise xiFromLineup's
@@ -3268,42 +3534,55 @@ function App() {
         // so this specifically catches "changed formation, forgot to actually fill it back in."
         if ((controlled.includes(fixtureOrTie.homeId) && !lineupIsComplete(clubsById[fixtureOrTie.homeId])) ||
             (controlled.includes(fixtureOrTie.awayId) && !lineupIsComplete(clubsById[fixtureOrTie.awayId]))) {
+            const blockedClub = controlled.includes(fixtureOrTie.homeId) && !lineupIsComplete(clubsById[fixtureOrTie.homeId]) ? clubsById[fixtureOrTie.homeId] : clubsById[fixtureOrTie.awayId];
+            setLineupBlockMessage(lineupIssues(blockedClub));
             setTab("play");
             return;
         }
-        lastEventCountRef.current = 0;
-        if (goalPopupTimeoutRef.current)
-            clearTimeout(goalPopupTimeoutRef.current);
-        setGoalPopup(null);
-        setShowLiveTable(false);
-        setMatchSpeed(defaultMatchSpeed);
-        setMatchViewTab("action");
-        // simulate every other match happening this week right now, so the table/results are
-        // already current while you're watching yours rather than waiting until you advance the week
-        const afterLeague = simulateOtherLeagueFixtures(world.clubs, world.players, isCup ? undefined : fixtureOrTie.id);
-        const afterCup = simulateOtherCupTies(afterLeague.clubs, afterLeague.players);
-        setWorld((w) => ({ ...w, clubs: afterCup.clubs, players: afterCup.players }));
-        const home = clubsById[fixtureOrTie.homeId];
-        const away = clubsById[fixtureOrTie.awayId];
-        const homePlayers = playersOfClub(fixtureOrTie.homeId);
-        const awayPlayers = playersOfClub(fixtureOrTie.awayId);
-        const homeXI = applyManagerBonus(controlled.includes(home.id) ? xiFromLineup(home, homePlayers) : bestXI(homePlayers, home.formation), home);
-        const awayXI = applyManagerBonus(controlled.includes(away.id) ? xiFromLineup(away, awayPlayers) : bestXI(awayPlayers, away.formation), away);
-        const stamina = {};
-        [...homeXI, ...awayXI].forEach((p) => { stamina[p.id] = 100; });
-        setActiveMatch({
-            id: fixtureOrTie.id, isCup: !!isCup, cupKey: isCup ? (fixtureOrTie.cupKey || null) : null, isPlayoff: !!fixtureOrTie.isPlayoffTie, promoClubId: fixtureOrTie.promoClubId || null, surviveClubId: fixtureOrTie.surviveClubId || null, homeId: fixtureOrTie.homeId, awayId: fixtureOrTie.awayId,
-            homeXI, awayXI, homeBench: benchFor(homePlayers, homeXI), awayBench: benchFor(awayPlayers, awayXI),
-            homeAppeared: [...homeXI], awayAppeared: [...awayXI], cardPenalties: [], matchCards: {}, running: false,
-            minute: 0, events: [], injuries: [], subsLeftHome: 5, subsLeftAway: 5, atHalftime: false,
-            playerStats: {}, stamina, homeFormation: home.formation, awayFormation: away.formation,
-            homeTempo: home.tempo || "balanced", awayTempo: away.tempo || "balanced",
-            homePressing: home.pressing || "medium", awayPressing: away.pressing || "medium", ballPosition: 0,
-            homePossession: 0, awayPossession: 0, weather: rollWeather(),
-        });
-        setSubPanel(null);
-        setStatsPanel(null);
-        setFormationPanel(null);
+        setLineupBlockMessage(null);
+        try {
+            lastEventCountRef.current = 0;
+            if (goalPopupTimeoutRef.current)
+                clearTimeout(goalPopupTimeoutRef.current);
+            setGoalPopup(null);
+            setShowLiveTable(false);
+            setMatchSpeed(defaultMatchSpeed);
+            setMatchViewTab("action");
+            // simulate every other match happening this week right now, so the table/results are
+            // already current while you're watching yours rather than waiting until you advance the week
+            const afterLeague = simulateOtherLeagueFixtures(world.clubs, world.players, isCup ? undefined : fixtureOrTie.id);
+            const afterCup = simulateOtherCupTies(afterLeague.clubs, afterLeague.players);
+            setWorld((w) => ({ ...w, clubs: afterCup.clubs, players: afterCup.players }));
+            const home = clubsById[fixtureOrTie.homeId];
+            const away = clubsById[fixtureOrTie.awayId];
+            const homePlayers = playersOfClub(fixtureOrTie.homeId);
+            const awayPlayers = playersOfClub(fixtureOrTie.awayId);
+            const homeXI = applyManagerBonus(controlled.includes(home.id) ? xiFromLineup(home, homePlayers) : bestXI(homePlayers, home.formation), home);
+            const awayXI = applyManagerBonus(controlled.includes(away.id) ? xiFromLineup(away, awayPlayers) : bestXI(awayPlayers, away.formation), away);
+            const stamina = {};
+            [...homeXI, ...awayXI].forEach((p) => { stamina[p.id] = 100; });
+            setActiveMatch({
+                id: fixtureOrTie.id, isCup: !!isCup, cupKey: isCup ? (fixtureOrTie.cupKey || null) : null, isPlayoff: !!fixtureOrTie.isPlayoffTie, promoClubId: fixtureOrTie.promoClubId || null, surviveClubId: fixtureOrTie.surviveClubId || null, homeId: fixtureOrTie.homeId, awayId: fixtureOrTie.awayId,
+                homeXI, awayXI, homeBench: benchFor(homePlayers, homeXI), awayBench: benchFor(awayPlayers, awayXI),
+                homeAppeared: [...homeXI], awayAppeared: [...awayXI], cardPenalties: [], matchCards: {}, running: false,
+                minute: 0, events: [], injuries: [], subsLeftHome: 5, subsLeftAway: 5, atHalftime: false,
+                playerStats: {}, stamina, homeFormation: home.formation, awayFormation: away.formation,
+                homeTempo: home.tempo || "balanced", awayTempo: away.tempo || "balanced",
+                homePressing: home.pressing || "medium", awayPressing: away.pressing || "medium", ballPosition: 0,
+                homePossession: 0, awayPossession: 0, weather: rollWeather(),
+            });
+            setSubPanel(null);
+            setStatsPanel(null);
+            setFormationPanel(null);
+        }
+        catch (err) {
+            // Event handlers like this one are never seen by the error boundary at all — React
+            // only catches errors thrown during rendering. Without this, a real bug here would
+            // surface as a raw, unhelpful browser-level "Script error." with zero detail, which is
+            // exactly what was happening. Routing it into state and re-throwing during render is
+            // what actually gets it in front of the error boundary, with full detail this time.
+            setFatalError(err);
+        }
     }
     function applyInjuries(m, injuredPlayers, side) {
         let xi = side === "home" ? [...m.homeXI] : [...m.awayXI];
@@ -3900,7 +4179,7 @@ function App() {
                 setDivisionCups((cups) => ({ ...cups, [m.cupKey]: { ...cups[m.cupKey], rounds: [...cups[m.cupKey].rounds.slice(0, -1), { ...last, ties: updatedTies }] } }));
             setMatchHistory((mh) => [{ id: uid("mh"), season, week, divisionId: "cup", isCup: true, cupKey: m.cupKey, homeId: m.homeId, awayId: m.awayId, homeGoals: hg, awayGoals: ag, penaltyScore }, ...mh].slice(0, 4000));
             finalizeCupTieResult(m.cupKey, updatedTies, last?.byeId);
-            setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === m.homeId ? { ...applyPopularityOnly(c, hg, ag), budget: c.budget + homeIncome.amount, lastAttendance: homeIncome.attendance, lastTicketPrice: homeIncome.price } : c.id === m.awayId ? { ...applyPopularityOnly(c, ag, hg), budget: c.budget + awayIncome.amount } : c)) }));
+            setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === m.homeId ? { ...applyPopularityOnly(c, hg, ag, areRivals(m.homeId, m.awayId)), budget: c.budget + homeIncome.amount, lastAttendance: homeIncome.attendance, lastTicketPrice: homeIncome.price } : c.id === m.awayId ? { ...applyPopularityOnly(c, ag, hg, areRivals(m.homeId, m.awayId)), budget: c.budget + awayIncome.amount } : c)) }));
         }
         else if (m.isPlayoff) {
             let winnerId = hg > ag ? m.homeId : ag > hg ? m.awayId : null;
@@ -3917,7 +4196,7 @@ function App() {
                 ? `🎟️ Playoff: ${clubsById[m.promoClubId]?.name} beat ${clubsById[m.surviveClubId]?.name}${penaltyScore ? ` (${penaltyScore.home}-${penaltyScore.away} on penalties)` : ""} — both promotion AND relegation confirmed at that boundary.`
                 : `🎟️ Playoff: ${clubsById[m.surviveClubId]?.name} beat ${clubsById[m.promoClubId]?.name}${penaltyScore ? ` (${penaltyScore.home}-${penaltyScore.away} on penalties)` : ""} — survive! Nothing extra moves at that boundary.`;
             setNews((n) => [{ id: uid("n"), text: newsText, clubIds: [m.homeId, m.awayId], week, season }, ...n].slice(0, 150));
-            setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === m.homeId ? { ...applyPopularityOnly(c, hg, ag), budget: c.budget + homeIncome.amount, lastAttendance: homeIncome.attendance, lastTicketPrice: homeIncome.price } : c.id === m.awayId ? { ...applyPopularityOnly(c, ag, hg), budget: c.budget + awayIncome.amount } : c)) }));
+            setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === m.homeId ? { ...applyPopularityOnly(c, hg, ag, areRivals(m.homeId, m.awayId)), budget: c.budget + homeIncome.amount, lastAttendance: homeIncome.attendance, lastTicketPrice: homeIncome.price } : c.id === m.awayId ? { ...applyPopularityOnly(c, ag, hg, areRivals(m.homeId, m.awayId)), budget: c.budget + awayIncome.amount } : c)) }));
         }
         else {
             setFixtures((prev) => prev.map((f) => (f.id === m.id ? { ...f, played: true, homeGoals: hg, awayGoals: ag, events: goalEvents } : f)));
@@ -3943,7 +4222,9 @@ function App() {
         const finalRatings = {};
         allOnPitch.forEach((p) => {
             const goals = goalEvents.filter((e) => e.scorerId === p.id).length;
-            finalRatings[p.id] = livePlayerRating(p.id, p.position === "GK", goals, m.playerStats, m.stamina[p.id]);
+            const assists = goalEvents.filter((e) => e.assistId === p.id).length;
+            const conceded = p.clubId === m.homeId ? ag : hg;
+            finalRatings[p.id] = livePlayerRating(p, p.position === "GK", goals, assists, m.playerStats, m.stamina[p.id], conceded);
         });
         let motmId = null, motmRating = -1;
         Object.keys(finalRatings).forEach((id) => {
@@ -4101,7 +4382,8 @@ function App() {
                         const goals = scorerCounts[p.id] || 0;
                         const onHomeSide = homeXI.some((x) => x.id === p.id);
                         const rating = fixtureRatings[p.id];
-                        const moraleDelta = drawFlag ? 0 : (onHomeSide ? homeWonFlag : awayWonFlag) ? 5 : -1;
+                        const temperMult = personalityFor(p) === "temperamental" ? 1.6 : 1;
+                        const moraleDelta = (drawFlag ? 0 : (onHomeSide ? homeWonFlag : awayWonFlag) ? 5 : -1) * temperMult;
                         np = { ...np, apps: np.apps + 1, goals: np.goals + goals, shots: np.shots + (sim.shotCounts[p.id] || 0), saves: np.saves + (sim.saveCounts[p.id] || 0), assists: (np.assists || 0) + (sim.assistCounts[p.id] || 0), goalsConceded: (np.goalsConceded || 0) + (sim.concededCounts[p.id] || 0), seasonApps: (np.seasonApps || 0) + 1, seasonGoals: (np.seasonGoals || 0) + goals, seasonShots: (np.seasonShots || 0) + (sim.shotCounts[p.id] || 0), seasonSaves: (np.seasonSaves || 0) + (sim.saveCounts[p.id] || 0), seasonAssists: (np.seasonAssists || 0) + (sim.assistCounts[p.id] || 0), seasonGoalsConceded: (np.seasonGoalsConceded || 0) + (sim.concededCounts[p.id] || 0), ratingSum: np.ratingSum + rating, ratingApps: np.ratingApps + 1, lastPlayedWeek: week, morale: clamp(np.morale + moraleDelta, 0, 100), merchSales: np.merchSales + goals * 120, matchLog: [matchLogEntry(season, week, p.clubId, onHomeSide ? fx.awayId : fx.homeId, goals, sim.assistCounts[p.id] || 0, rating, false, !!p.loanParentClubId), ...(p.matchLog || [])].slice(0, 500) };
                         if (p.id === motmId)
                             np = { ...np, motmCareerCount: (np.motmCareerCount || 0) + 1, motmSeasonCount: (np.motmSeasonCount || 0) + 1 };
@@ -4262,7 +4544,8 @@ function App() {
                 const goals = scorerCounts[p.id] || 0;
                 const onHomeSide = homeXI.some((x) => x.id === p.id);
                 const rating = fixtureRatings[p.id];
-                const moraleDelta = drawFlag ? 0 : (onHomeSide ? homeWonFlag : awayWonFlag) ? 5 : -1;
+                const temperMult = personalityFor(p) === "temperamental" ? 1.6 : 1;
+                const moraleDelta = (drawFlag ? 0 : (onHomeSide ? homeWonFlag : awayWonFlag) ? 5 : -1) * temperMult;
                 np = { ...np, apps: np.apps + 1, goals: np.goals + goals, shots: np.shots + (sim.shotCounts[p.id] || 0), saves: np.saves + (sim.saveCounts[p.id] || 0), assists: (np.assists || 0) + (sim.assistCounts[p.id] || 0), goalsConceded: (np.goalsConceded || 0) + (sim.concededCounts[p.id] || 0), seasonApps: (np.seasonApps || 0) + 1, seasonGoals: (np.seasonGoals || 0) + goals, seasonShots: (np.seasonShots || 0) + (sim.shotCounts[p.id] || 0), seasonSaves: (np.seasonSaves || 0) + (sim.saveCounts[p.id] || 0), seasonAssists: (np.seasonAssists || 0) + (sim.assistCounts[p.id] || 0), seasonGoalsConceded: (np.seasonGoalsConceded || 0) + (sim.concededCounts[p.id] || 0), ratingSum: np.ratingSum + rating, ratingApps: np.ratingApps + 1, lastPlayedWeek: week, morale: clamp(np.morale + moraleDelta, 0, 100), merchSales: np.merchSales + goals * 120, matchLog: [matchLogEntry(season, week, p.clubId, onHomeSide ? t.awayId : t.homeId, goals, sim.assistCounts[p.id] || 0, rating, true, !!p.loanParentClubId), ...(p.matchLog || [])].slice(0, 500) };
                 if (p.id === motmId)
                     np = { ...np, motmCareerCount: (np.motmCareerCount || 0) + 1, motmSeasonCount: (np.motmSeasonCount || 0) + 1 };
@@ -4276,11 +4559,12 @@ function App() {
         const cupAwayResult = sim.awayGoals > sim.homeGoals ? "win" : sim.homeGoals === sim.awayGoals ? "draw" : "loss";
         const cupHomeIncome = matchIncome(home, true, cupHomeResult);
         const cupAwayIncome = matchIncome(away, false, cupAwayResult);
+        const isSameCityDerby = home?.city && home.city === away?.city;
         const newClubs = clearInjuredFromLineups(clubs.map((c) => {
             if (c.id === t.homeId)
-                return { ...applyPopularityOnly(c, sim.homeGoals, sim.awayGoals), budget: c.budget + cupHomeIncome.amount, lastMatchIncome: cupHomeIncome.amount, lastAttendance: cupHomeIncome.attendance, lastTicketPrice: cupHomeIncome.price, careerMotm: motmPlayerObj?.clubId === c.id ? (c.careerMotm || 0) + 1 : (c.careerMotm || 0) };
+                return { ...applyPopularityOnly(c, sim.homeGoals, sim.awayGoals, isSameCityDerby), budget: c.budget + cupHomeIncome.amount, lastMatchIncome: cupHomeIncome.amount, lastAttendance: cupHomeIncome.attendance, lastTicketPrice: cupHomeIncome.price, careerMotm: motmPlayerObj?.clubId === c.id ? (c.careerMotm || 0) + 1 : (c.careerMotm || 0) };
             if (c.id === t.awayId)
-                return { ...applyPopularityOnly(c, sim.awayGoals, sim.homeGoals), budget: c.budget + cupAwayIncome.amount, lastMatchIncome: cupAwayIncome.amount, careerMotm: motmPlayerObj?.clubId === c.id ? (c.careerMotm || 0) + 1 : (c.careerMotm || 0) };
+                return { ...applyPopularityOnly(c, sim.awayGoals, sim.homeGoals, isSameCityDerby), budget: c.budget + cupAwayIncome.amount, lastMatchIncome: cupAwayIncome.amount, careerMotm: motmPlayerObj?.clubId === c.id ? (c.careerMotm || 0) + 1 : (c.careerMotm || 0) };
             return c;
         }), new Set(Object.keys(injuryMap)));
         const penaltyText = penaltyScoreAi ? ` (${clubsById[winnerId]?.name} win ${penaltyScoreAi.home}-${penaltyScoreAi.away} on penalties)` : "";
@@ -4664,7 +4948,8 @@ function App() {
                         trainingFeedback.push({ id: uid("cm"), kind: "coach", clubId: p.clubId, playerId: p.id, playerName: p.name, tone: "bad", text: `${myCoach.name}: "${p.name} has dropped off this season — down to ${dev.overall} from ${p.overall}. Might be worth checking in with them."`, week: 1, season: season + 1, resolved: false });
                     }
                 }
-                const withPlayerOfSeason = (motmLeader && p.id === motmLeader.id) ? { ...dev, playerOfSeasonCount: (dev.playerOfSeasonCount || 0) + 1 } : dev;
+                const repBumped = (motmLeader && p.id === motmLeader.id) ? { ...dev, reputationBonus: (dev.reputationBonus || 0) + 8 } : dev;
+                const withPlayerOfSeason = (motmLeader && p.id === motmLeader.id) ? { ...repBumped, playerOfSeasonCount: (repBumped.playerOfSeasonCount || 0) + 1 } : repBumped;
                 // Loan spells end automatically at the season boundary they were due back — no need to
                 // manage the calendar yourself, they just reappear at their parent club next season.
                 if (p.loanParentClubId && p.loanReturnSeason && p.loanReturnSeason <= season + 1) {
@@ -4763,8 +5048,21 @@ function App() {
             if (next !== c.formation)
                 updates[c.id] = next;
         });
+        // Club identity now genuinely drives tactical choice, not just formation shape — an
+        // Attacking club actually sets out to attack, a Defensive one actually holds its shape,
+        // rather than every AI club quietly sharing the same default tempo forever.
+        clubsList.forEach((c) => {
+            if (controlled.includes(c.id) || updates[c.id + "_tempo"])
+                return;
+            if (Math.random() > 0.02)
+                return;
+            const identity = clubIdentityFor(c);
+            const desiredTempo = identity === "attacking" ? "attacking" : identity === "defensive" ? "defensive" : choice(["balanced", "balanced", "attacking", "defensive"]);
+            if (desiredTempo !== c.tempo)
+                updates[c.id + "_tempo"] = desiredTempo;
+        });
         if (Object.keys(updates).length) {
-            setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (updates[c.id] ? { ...c, formation: updates[c.id] } : c)) }));
+            setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (updates[c.id] || updates[c.id + "_tempo"]) ? { ...c, formation: updates[c.id] || c.formation, tempo: updates[c.id + "_tempo"] || c.tempo } : c) }));
         }
     }
     function runManagerChurn(clubsList) {
@@ -4907,6 +5205,14 @@ function App() {
         return { clubs: newClubs, players: newPlayers, newsItems };
     }
     function advanceWeek() {
+        try {
+            advanceWeekInner();
+        }
+        catch (err) {
+            setFatalError(err);
+        }
+    }
+    function advanceWeekInner() {
         const afterLeague = simulateOtherLeagueFixtures(world.clubs, world.players);
         const afterCupRaw = simulateOtherCupTies(afterLeague.clubs, afterLeague.players);
         const afterTransfers = runAiTransferActivity(afterCupRaw.clubs, afterCupRaw.players);
@@ -4927,6 +5233,7 @@ function App() {
         }
         const newReleaseRequests = [];
         const bonusPayouts = {};
+        const leaderClubIds = new Set(world.players.filter((pl) => pl.clubId && personalityFor(pl) === "leader").map((pl) => pl.clubId));
         setWorld((w) => ({
             ...w,
             players: w.players.map((p) => {
@@ -4957,9 +5264,19 @@ function App() {
                         }
                     }
                 }
-                // players who didn't get a game this week drift unhappy — nobody likes sitting on the bench for long
+                // players who didn't get a game this week drift unhappy — nobody likes sitting on the bench for
+                // long, though an Ambitious player takes it much harder, wanting regular football to progress
+                // their own career, while a Loyal one is more patient about their role in the squad.
                 if (np.clubId && np.lastPlayedWeek !== week) {
-                    np = { ...np, morale: clamp(np.morale - 1, 0, 100) };
+                    const gameTimePersonality = personalityFor(np);
+                    const drift = gameTimePersonality === "ambitious" ? 2.2 : gameTimePersonality === "loyal" ? 0.5 : 1;
+                    np = { ...np, morale: clamp(np.morale - drift, 0, 100) };
+                }
+                // A Leader in the squad gives everyone around them a small, steady lift — the
+                // whole reason the trait exists, now actually doing something rather than just
+                // being a label on a profile.
+                if (np.clubId && leaderClubIds.has(np.clubId)) {
+                    np = { ...np, morale: clamp(np.morale + 0.4, 0, 100) };
                 }
                 // match fatigue builds up over consecutive starts and only meaningfully recovers with an
                 // actual rest week — separate from in-match stamina (which resets every game), this is
@@ -4972,12 +5289,16 @@ function App() {
                         ? { ...np, fatigue: clamp((np.fatigue || 0) + fatigueGain, 0, 100), consecutiveApps: (np.consecutiveApps || 0) + 1 }
                         : { ...np, fatigue: clamp((np.fatigue || 0) - 35, 0, 100), consecutiveApps: 0 };
                 }
-                // sustained low morale leads to a release request — the manager can grant it fee-free or ignore it
+                // sustained low morale leads to a release request — the manager can grant it fee-free or ignore it.
+                // Ambitious players push for a move faster than most; Loyal players take a lot more before they will.
                 if (np.clubId) {
-                    if (np.morale < 25) {
+                    const personality = personalityFor(np);
+                    const moraleThreshold = personality === "ambitious" ? 32 : personality === "loyal" ? 15 : 25;
+                    const weeksNeeded = personality === "ambitious" ? 2 : personality === "loyal" ? 5 : 3;
+                    if (np.morale < moraleThreshold) {
                         const lowWeeks = (np.lowMoraleWeeks || 0) + 1;
                         np = { ...np, lowMoraleWeeks: lowWeeks };
-                        if (lowWeeks >= 3 && !np.releaseRequested) {
+                        if (lowWeeks >= weeksNeeded && !np.releaseRequested) {
                             np = { ...np, releaseRequested: true };
                             newReleaseRequests.push({ name: np.name, clubId: np.clubId });
                         }
@@ -5006,7 +5327,13 @@ function App() {
                 const scoutWage = hiredScout && hiredScout.clubId === c.id ? hiredScout.weeklyWage : 0;
                 const staffWages = (w.staff || []).filter((s) => s.clubId === c.id).reduce((sum, s) => sum + s.wageWeekly, 0);
                 const conditionDecay = 0.35 + (c.stadiumTier || 0) * 0.1;
-                return { ...c, budget: c.budget - wages + sponsorship + merch - scoutWage - staffWages, merchTotalEarned: (c.merchTotalEarned || 0) + merch, stadiumCondition: clamp((c.stadiumCondition ?? 80) - conditionDecay, 20, 100) };
+                const newBudget = c.budget - wages + sponsorship + merch - scoutWage - staffWages;
+                // A weekly snapshot, not an event log — comparing consecutive snapshots captures
+                // the full net effect of everything that happened that week (wages, income,
+                // transfers, matchday takings) without needing to separately track every single
+                // source of a budget change throughout the codebase.
+                const budgetHistory = [...(c.budgetHistory || []), { season, week, budget: newBudget }].slice(-104);
+                return { ...c, budget: newBudget, budgetHistory, merchTotalEarned: (c.merchTotalEarned || 0) + merch, stadiumCondition: clamp((c.stadiumCondition ?? 80) - conditionDecay, 20, 100) };
             }),
         }));
         // scouting reports refresh every 3 weeks
@@ -5145,7 +5472,8 @@ function App() {
         if (!activeClub)
             return { label: "ADVANCE WEEK", action: advanceWeek, disabled: !allControlledDoneThisWeek };
         const myFx = weekFixturesAll.find((f) => f.homeId === activeClubId || f.awayId === activeClubId);
-        const myTie = findPendingCupTieForClub(activeClubId);
+        const myTieWrapper = findPendingCupTieForClub(activeClubId);
+        const myTie = myTieWrapper?.tie || null;
         const myPlayoffTie = playoffTies.find((t) => !t.played && (t.homeId === activeClubId || t.awayId === activeClubId));
         const myMatch = myPlayoffTie || myTie || (myFx && !myFx.played ? myFx : null);
         if (myMatch)
@@ -5306,6 +5634,18 @@ function App() {
     }
     function toggleTransferListed(playerId) {
         setWorld((w) => ({ ...w, players: w.players.map((p) => (p.id === playerId ? { ...p, transferListed: !p.transferListed } : p)) }));
+    }
+    function areRivals(clubIdA, clubIdB) {
+        const a = clubsById[clubIdA], b = clubsById[clubIdB];
+        if (!a || !b || a.id === b.id)
+            return false;
+        // Same city is a real signal on its own, but two clubs who've simply crossed paths a lot —
+        // repeated cup meetings, promotion or relegation battles — earn rivalry status over the
+        // course of a save too, not just an accident of geography.
+        if (a.city && a.city === b.city)
+            return true;
+        const meetings = matchHistory.filter((m) => (m.homeId === clubIdA && m.awayId === clubIdB) || (m.homeId === clubIdB && m.awayId === clubIdA)).length;
+        return meetings >= 6;
     }
     function staffFor(clubId, role) {
         return world?.staff?.find((s) => s.clubId === clubId && s.role === role);
@@ -5495,6 +5835,24 @@ function App() {
     }
     function setTrainingFocus(clubId, focus) {
         setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === clubId ? { ...c, trainingFocus: focus } : c)) }));
+    }
+    function setClubColor(clubId, color) {
+        setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === clubId ? { ...c, customColor: color } : c)) }));
+    }
+    function setKitColor(clubId, kitType, slot, color) {
+        setWorld((w) => ({
+            ...w,
+            clubs: w.clubs.map((c) => {
+                if (c.id !== clubId)
+                    return c;
+                const field = kitType === "home" ? "homeKit" : "awayKit";
+                const current = c[field] || kitFor(c, kitType === "home");
+                return { ...c, [field]: { ...current, [slot]: color } };
+            }),
+        }));
+    }
+    function resetKit(clubId, kitType) {
+        setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === clubId ? { ...c, [kitType === "home" ? "homeKit" : "awayKit"]: null } : c)) }));
     }
     function acceptSponsorOffer(clubId, category, offer) {
         const fieldMap = { kit: "kitSponsor", ground: "groundSponsor", boot: "bootSponsor" };
@@ -5715,7 +6073,17 @@ function App() {
         return newSigningWage(player.overall, tier);
     }
     function evaluateContractOffer(player, offer, buyerClub) {
-        const expected = offer.isRenewal ? expectedRenewalWage(player, buyerClub) : expectedWage(player, buyerClub);
+        let expected = offer.isRenewal ? expectedRenewalWage(player, buyerClub) : expectedWage(player, buyerClub);
+        // A Loyal player genuinely values staying somewhere settled and will take less to stay than
+        // the market says they're worth; an Ambitious one wants more just to be convinced to stay,
+        // and is easier to prise away with a genuine step up. Doesn't apply to a brand new signing.
+        if (offer.isRenewal) {
+            const personality = personalityFor(player);
+            if (personality === "loyal")
+                expected *= 0.85;
+            else if (personality === "ambitious")
+                expected *= 1.15;
+        }
         // Bonuses and a signing fee genuinely count toward what they're weighing, not just base
         // wage — a smaller weekly number with a fat signing bonus can still land.
         const packageValue = offer.wage + (offer.signingBonus || 0) / 52 + (offer.goalBonus || 0) * 0.12 + (offer.assistBonus || 0) * 0.07;
@@ -6297,74 +6665,41 @@ function App() {
                 React.createElement("div", null,
                     React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "\uD83D\uDCD6 HOW TO PLAY"),
                     React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "A full walkthrough of every part of BOOKED! Pitch Side Empire.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Getting Started"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "Pick one club to manage, or two if you and someone else want to run rival clubs in the same world (take turns via the \u21C4 switcher, top right) \u2014 enter a name for each manager on the setup screen. Real clubs throughout; the best-known real footballers fill the top squads first, everyone else gets a fictional name you can always rename. There are five divisions, right down to Sunday League \u2014 start anywhere, including the bottom, and work your way up. You can also start unemployed and spectate the league before taking a job \u2014 see \"Between Jobs\" below.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Playing a Match"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "The Play tab (\u26BD) is home base: a hero card shows your next fixture with a VS build-up, your latest club news, formation/tactics, your Starting XI on the pitch, and a scouting report on your next opponent. Hit PLAY MATCH to head into the live matchday screen. It's a real-time clock \u2014 KICK OFF starts it running, playing out 90 minutes over about two real minutes, with a possession bar, a moving ball tracker, and a full team stats comparison (shots, shots on target, saves, cards) updating live. The Pitch tab shows both teams' actual formations spread across the pitch, players drifting believably around their positions with a small pull toward wherever the ball is. Pause any time to make substitutions or change formation/tactics \u2014 subs and tactics are locked while the clock is running, so pause first. A goal popup announces every goal as it happens, and Man of the Match is shown the moment the final whistle goes. A cup or playoff match level after 90 minutes goes to penalties \u2014 if your club's involved, you get to choose your five takers and their order yourself rather than it being decided for you.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Tactics"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "Beyond formation (which decides your XI's shape), Tempo (Defensive/Balanced/Attacking) and Pressing (Low/Medium/High) are real levers: attacking tempo trades defensive solidity for goal threat; high pressing tires the opposition faster \u2014 and your own players too \u2014 and draws more bookings. All three can be changed before kick-off on the Play tab, or live mid-match while paused. On the Squad pitch editor, tapping any outfield slot also lets you set a role for that position \u2014 a forward can play Central, Drift Wide, or Drop Deep; a midfielder can sit Balanced, Get Forward, or Hold Position; a defender can stay Balanced or Overlap \u2014 each a genuine trade-off between the two stats it affects, shown as a small arrow on their pitch icon. You can also designate Penalty, Free Kick, and Corner takers from your squad (also on the Tactics section) \u2014 a genuinely good, well-suited taker gives your side a small real edge whenever they're on the pitch. Separately from in-match stamina (which resets every game), each player also carries match fatigue across the season: start them game after game with no rest and it climbs, quietly costing them effective quality until it saturates \u2014 a genuine reason to rotate your squad rather than always picking your strongest XI. Rest a tired player for a week or two and it drains back down.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Your Squad"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "Tap any player for their full profile \u2014 six core stats, potential (their development ceiling, shown when there's room left to grow), career average rating, MOTM count, shots/saves, wage, contract, and morale. A Contract sub-tab breaks down their actual deal \u2014 bonuses, release clauses, everything. A Compare option lets you put any two players side by side, anywhere in the game, with the better value in each stat highlighted. You can set an Individual Training Focus for any player, overriding the squad-wide plan just for them. An injured player can be sent for accelerated treatment for a fee \u2014 usually cuts recovery time, but carries a real chance of a setback instead. Morale rises with wins and a weekly Pep Talk (once per player per week), and drifts down if a player's left out too long \u2014 rotate your squad, don't just pick the same 11 forever. If morale stays critically low for a few weeks running, a player will formally request a release \u2014 grant it and there's no severance to pay, since they wanted out anyway. Physical affects how fast a player tires mid-match. Injuries and cards (yellow/red, with suspensions for reds and for five yellows in a season) are both rare but real \u2014 and very rarely, an injury is serious enough to end a career outright.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Signing Players"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "Browse free agents, rival clubs' listed players, and the loan market from the Transfer Market. For a rival's full squad \u2014 not just who they've listed \u2014 visit their Club page directly, where you can approach anyone; a listed player is just more likely to say yes. Approaching a rival opens a fee negotiation first \u2014 pick a bid level, and the selling club can genuinely say no, especially for one of their key players or if you're a much smaller club. Once a fee's agreed (or for a free agent, straight away), you move to personal terms: real sliders for weekly wage, signing bonus, goal bonus, and assist bonus, all scaled to what that player's actually worth, with a live readout of how likely they are to accept. They take about a week to actually respond \u2014 if the package isn't quite enough, they can come back with a genuine counter-offer instead of a flat no, which you can accept, reject, or walk away from. A transfer fee is never actually paid until the player agrees personal terms, so a deal falling through there costs you nothing. Rival transfers are only possible during two transfer windows each season (weeks 1-6 and 16-20) \u2014 free agent and loan signings work year-round. Contract renewals for your own players work through this exact same system.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Loans"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "List any of your players for loan from their profile, and rivals can request them for the rest of the season for a modest fee to you \u2014 you keep them under contract, someone else gets game time out of them. The Loan Market (Transfer Market tab) works the same way in reverse: browse players other clubs have made available and request one for your own squad, covering their wages while they're with you. Loans return automatically at the end of the season, or you can recall one early from their profile if you need them back sooner \u2014 recalling costs a little morale, since it's a real disruption to their season. A loan spell shows properly on a player's week-by-week history, including exactly when they moved and came back.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Finances"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "Tap the money badge (top of screen) or \"View Finances\" on the Club page. Every contracted player is paid weekly regardless of results. Income comes from a real sponsorship deal (Kit, Ground, and Boot sponsors \u2014 offers land around week 20 each season for the following year, or a generic baseline if you never pick one), weekly merchandise (driven by club popularity), and matchday gate receipts on weeks you play at home. The board also sets aside a genuine Transfer Budget each season \u2014 separate from your day-to-day budget \u2014 capping how much you can actually spend on fees regardless of how much cash you're sitting on. Staying in the red for too long has real consequences: board confidence drains fast, and after about a month in debt the board will force a sale to balance the books without asking you first.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Fans"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "Your actual fan count (Club page, and the Fan Popularity leaderboard under Menu) is a real number \u2014 hundreds for a Sunday League club, potentially millions for an established giant \u2014 separate from how many people can fit in your stadium. It grows permanently through real achievements: titles, promotions, cup wins, and running a TV advertising campaign (Club page, real money, a genuine but modest fanbase boost, once every couple of months). Rare random events \u2014 good and bad \u2014 can also nudge things, shown in Menu \u2192 Messages alongside routine board and fan sentiment.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Scouting"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } },
-                        "Hire a chief scout (Menu \u2192 Scouting) from a pool of specialists \u2014 youth prospects, proven quality, bargains, defensive or attacking talent \u2014 each with their own skill level and wage. ",
-                        React.createElement("strong", null, "Unlocks from Season 2"),
-                        " \u2014 the board wants to see a full season out of you first. They can turn you down, especially if your reputation doesn't match their standards, and a refusal means waiting before trying again. Once hired, they surface a fresh shortlist of recommended targets every few weeks, one tap from their full profile. Only one scout can be employed across your controlled clubs at a time.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Youth Academy"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } },
-                        "A genuinely different way to build a squad \u2014 instead of buying a finished player, you're betting on one who doesn't exist yet. Three purchasable tiers (Finance page, ",
-                        React.createElement("strong", null, "unlocks Season 2"),
-                        ") each raise the odds of your academy producing a raw, high-potential graduate at the start of the following season, straight onto your books \u2014 nobody else ever sees them on the open market. No further action needed once you've invested; graduates just appear when they're ready.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Stadium"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } },
-                        "Also on the Finance page: your capacity, last attendance, live ticket price estimate, and ground condition, which quietly wears down every week and drags down both price and attendance if left too low \u2014 Repair Ground brings it back to full for less than a full upgrade costs. Two permanent upgrades are available: Expand Capacity (more seats, straightforwardly more fans through the gate) \u2014 ",
-                        React.createElement("strong", null, "unlocks Season 2"),
-                        " \u2014 and Upgrade Facilities (raises your ticket price and merch ceiling for good) \u2014 ",
-                        React.createElement("strong", null, "unlocks Season 3"),
-                        ", and even then only one facilities tier roughly every two seasons, however much money you throw at it. Big infrastructure takes time, whatever your budget. Every stadium also has a proper name, shown on the matchday header.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "The Board & Your Job"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "Every season the board sets a realistic objective for your club \u2014 win the league, push for promotion, avoid relegation, or a mid-table finish, depending on where you sit. Board confidence nudges up or down a little every week based on that week's result, drains slowly if you're deep in the relegation zone or sitting in debt, and moves more decisively at season review based on whether you met your objective. You can also Issue an Ultimatum (Finance page) demanding transfer funds \u2014 higher confidence and good form make the board more likely to listen, but pushing your luck while they're already unhappy can badly backfire. Hit zero confidence and you're sacked. Separately, your Manager Reputation follows you between jobs, tracked independently for each manager if you're playing with someone else: a big season can be enough to earn a genuine job offer from a bigger club, which you can accept or turn down.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Between Jobs"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "Get sacked, and you can spectate rather than immediately picking a new club \u2014 the league keeps running, and you can take a job whenever one genuinely opens up. Menu \u2192 Job Information shows every club's manager situation at a glance, from Secure through to Very Insecure, and Vacant posts where nobody's in charge at all. You can only take a job that's actually vacant \u2014 the same as it works when you're already employed \u2014 but a vacancy can appear at any time if the board loses patience with someone else, so it's worth checking back.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Training"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "Set a weekly Training Focus on the Club page \u2014 any stat, or Balanced \u2014 which applies to the whole squad. Individual players can also be given their own focus from their profile, overriding the squad-wide plan just for them. It's free, so there's no reason to leave it unset.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Competitions"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "Five divisions. At each boundary, 1st place goes straight up and last place goes straight down automatically \u2014 but there's now a one-off decider in an extra week after the league season finishes, at every boundary: the runner-up chasing promotion from below plays the second-from-bottom side fighting relegation from above. Win it as the promotion side and you're both up \u2014 and the team you beat goes down too, on top of the automatic bottom side. Win it as the survival side and nothing extra moves \u2014 you both stay exactly where you finished. Level after 90 minutes goes to penalties, no draws allowed. Every division also runs its own knockout cup \u2014 Premier Cup, Next Up Cup, Rising Cup, Emerging Cup, and Sunday Cup \u2014 each with its own winner and prize money. The final few clubs of each division cup automatically qualify for the Empire Cup, a cross-division knockout that draws itself the moment all five division cups have reached that point, right through to a final each season.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "History, Stats & Achievements"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "Menu \u2192 History & Stats has final tables and Hall of Fame links for every completed season. Menu \u2192 Player Records is a proper leaderboard for goals, assists, and Man of the Match \u2014 filterable by season, division, or club, and includes a genuine \"Find Any Player\" search covering everyone in the game regardless of who they currently play for. Any player's profile also has a week-by-week season history, including loan spells and mid-season transfers shown clearly with dividers. Menu \u2192 Match Results is filterable by club, competition, and season. Menu \u2192 Achievements covers 37 in total, spanning money, goals, trophies, promotions, win rate, and more \u2014 all measured against where you started or what you've actually done, not what you were handed at kick-off, so picking a big, wealthy club doesn't hand you a head start.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Manager Leaderboard"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "Menu \u2192 Manager Leaderboard compares reputation, win rate, and trophies for every manager in the game, toggleable between All Time and This Season \u2014 mainly built for two-player games so you can see who's actually doing better, not just whose club is doing better, but it also includes a genuine \"Find Any Manager\" search covering everyone, including managers currently between jobs who wouldn't otherwise appear in the ranked list at all.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Season 1 Restrictions"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "A handful of things are deliberately locked away for your first season, so early progress has to be earned rather than bought or picked on day one: Scouting (unlocks Season 2), the Youth Academy (Season 2), Expand Capacity (Season 2), Upgrade Facilities (Season 3, then capped to roughly one tier every two seasons after that regardless of budget), and the very best free agents \u2014 85+ overall \u2014 who simply don't appear in the Transfer Market until Season 2. Everything else is available from the first whistle.")),
-                React.createElement("div", null,
-                    React.createElement("div", { className: "text-xs font-bold mb-1" }, "Saving"),
-                    React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "The game autosaves to this browser after every match and every week \u2014 you don't need to do anything. Everything lives in this browser's storage by default, so it won't follow you to a different phone or browser on its own. To actually move a save, use Export on any slot in Load Game \u2014 it downloads a real file \u2014 then Import that file wherever you want to continue. Restart Game (Club page) wipes everything and takes you back to club selection, if you ever want a completely fresh start.")))));
+                React.createElement(GuideSection, { title: "Getting Started", sub: guideSub, dark: dark, defaultOpen: true }, "Pick one club to manage, or two if you and someone else want to run rival clubs in the same world (take turns via the \u21C4 switcher, top right) \u2014 enter a name for each manager on the setup screen. Real clubs throughout; the best-known real footballers fill the top squads first, everyone else gets a fictional name you can always rename. There are five divisions, right down to Sunday League \u2014 start anywhere, including the bottom, and work your way up. You can also start unemployed and spectate the league before taking a job \u2014 see \"Between Jobs\" below."),
+                React.createElement(GuideSection, { title: "Playing a Match", sub: guideSub, dark: dark, defaultOpen: false }, "The Play tab (\u26BD) is home base: a hero card shows your next fixture with a VS build-up, your latest club news, formation/tactics, your Starting XI on the pitch, and a scouting report on your next opponent. Hit PLAY MATCH to head into the live matchday screen. It's a real-time clock \u2014 KICK OFF starts it running, playing out 90 minutes over about two real minutes, with a possession bar, a moving ball tracker, and a full team stats comparison (shots, shots on target, saves, cards) updating live. The Action tab shows real, generated commentary as it happens, not just a running score. The Pitch tab shows both teams' actual formations spread across the pitch in their real kit colours, players drifting believably around their positions with a small pull toward wherever the ball is. Chances themselves are genuinely earned now \u2014 your forwards' shooting against their actual back line, your midfield against theirs, not a single blended team-strength number, so a real mismatch (a lethal striker against a shaky defence) creates real, visible danger. Pause any time to make substitutions or change formation/tactics \u2014 subs and tactics are locked while the clock is running, so pause first. At half-time you get a genuine choice of team talk \u2014 Calm & Measured, Rousing, or Demanding \u2014 each a real gamble with no guaranteed outcome, and once per half you can also fire off a Manager Shout-Out live during play, deliberately uncertain whether it lands. A goal popup announces every goal as it happens, and Man of the Match is shown the moment the final whistle goes. A cup or playoff match level after 90 minutes goes to penalties \u2014 if your club's involved, you get to choose your five takers and their order yourself rather than it being decided for you."),
+                React.createElement(GuideSection, { title: "Tactics", sub: guideSub, dark: dark, defaultOpen: false }, "Beyond formation (which decides your XI's shape), Tempo (Defensive/Balanced/Attacking) and Pressing (Low/Medium/High) are real levers: attacking tempo trades defensive solidity for goal threat; high pressing tires the opposition faster \u2014 and your own players too \u2014 and draws more bookings. All three can be changed before kick-off on the Play tab, or live mid-match while paused. On the Squad pitch editor, tapping any outfield slot also lets you set a role for that position \u2014 a forward can play Central, Drift Wide, or Drop Deep; a midfielder can sit Balanced, Get Forward, or Hold Position; a defender can stay Balanced or Overlap \u2014 each a genuine trade-off between the two stats it affects, shown as a small arrow on their pitch icon. You can also designate Penalty, Free Kick, and Corner takers from your squad (also on the Tactics section) \u2014 a genuinely good, well-suited taker gives your side a small real edge whenever they're on the pitch. Separately from in-match stamina (which resets every game), each player also carries match fatigue across the season: start them game after game with no rest and it climbs, quietly costing them effective quality until it saturates \u2014 a genuine reason to rotate your squad rather than always picking your strongest XI. Rest a tired player for a week or two and it drains back down."),
+                React.createElement(GuideSection, { title: "Your Squad", sub: guideSub, dark: dark, defaultOpen: false }, "Tap any player for their full profile \u2014 six core stats, potential (their development ceiling, shown when there's room left to grow), career average rating, MOTM count, shots/saves, wage, contract, and morale. A Contract sub-tab breaks down their actual deal \u2014 bonuses, release clauses, everything. A Compare option lets you put any two players side by side, anywhere in the game, with the better value in each stat highlighted. You can set an Individual Training Focus for any player, overriding the squad-wide plan just for them. An injured player can be sent for accelerated treatment for a fee \u2014 usually cuts recovery time, but carries a real chance of a setback instead. Morale rises with wins and a weekly Pep Talk (once per player per week), and drifts down if a player's left out too long \u2014 rotate your squad, don't just pick the same 11 forever. If morale stays critically low for a few weeks running, a player will formally request a release \u2014 grant it and there's no severance to pay, since they wanted out anyway. Physical affects how fast a player tires mid-match. Injuries and cards (yellow/red, with suspensions for reds and for five yellows in a season) are both rare but real \u2014 and very rarely, an injury is serious enough to end a career outright."),
+                React.createElement(GuideSection, { title: "Signing Players", sub: guideSub, dark: dark, defaultOpen: false }, "Browse free agents, rival clubs' listed players, and the loan market from the Transfer Market. For a rival's full squad \u2014 not just who they've listed \u2014 visit their Club page directly, where you can approach anyone; a listed player is just more likely to say yes. Approaching a rival opens a fee negotiation first \u2014 pick a bid level, and the selling club can genuinely say no, especially for one of their key players or if you're a much smaller club. Once a fee's agreed (or for a free agent, straight away), you move to personal terms: real sliders for weekly wage, signing bonus, goal bonus, and assist bonus, all scaled to what that player's actually worth, with a live readout of how likely they are to accept. They take about a week to actually respond \u2014 if the package isn't quite enough, they can come back with a genuine counter-offer instead of a flat no, which you can accept, reject, or walk away from. A transfer fee is never actually paid until the player agrees personal terms, so a deal falling through there costs you nothing. Rival transfers are only possible during two transfer windows each season (weeks 1-6 and 16-20) \u2014 free agent and loan signings work year-round. Contract renewals for your own players work through this exact same system."),
+                React.createElement(GuideSection, { title: "Player Personality", sub: guideSub, dark: dark, defaultOpen: false }, "Every player has a genuine personality \u2014 Professional, Ambitious, Temperamental, Loyal, or Leader \u2014 shown on their profile, and it's not just flavour text. Professional players train noticeably better. Ambitious ones push for a move much faster if they're unhappy or short of game time, and want a real pay rise to sign a renewal. Temperamental players pick up more cards and swing harder in morale after a win or loss. Loyal players take far more sustained unhappiness before requesting a release, and will renew below market rate to stay somewhere settled. A Leader quietly lifts the morale of the whole squad around them just by being in it. It's fixed for each player, not something you can change."),
+                React.createElement(GuideSection, { title: "Loans", sub: guideSub, dark: dark, defaultOpen: false }, "List any of your players for loan from their profile, and rivals can request them for the rest of the season for a modest fee to you \u2014 you keep them under contract, someone else gets game time out of them. The Loan Market (Transfer Market tab) works the same way in reverse: browse players other clubs have made available and request one for your own squad, covering their wages while they're with you. Loans return automatically at the end of the season, or you can recall one early from their profile if you need them back sooner \u2014 recalling costs a little morale, since it's a real disruption to their season. A loan spell shows properly on a player's week-by-week history, including exactly when they moved and came back."),
+                React.createElement(GuideSection, { title: "Finances", sub: guideSub, dark: dark, defaultOpen: false }, "Tap the money badge (top of screen) or \"View Finances\" on the Club page. Every contracted player is paid weekly regardless of results. Income comes from a real sponsorship deal (Kit, Ground, and Boot sponsors \u2014 offers land around week 20 each season for the following year, or a generic baseline if you never pick one), weekly merchandise (driven by club popularity), and matchday gate receipts on weeks you play at home. The board also sets aside a genuine Transfer Budget each season \u2014 separate from your day-to-day budget \u2014 capping how much you can actually spend on fees regardless of how much cash you're sitting on. Staying in the red for too long has real consequences: board confidence drains fast, and after about a month in debt the board will force a sale to balance the books without asking you first."),
+                React.createElement(GuideSection, { title: "Fans", sub: guideSub, dark: dark, defaultOpen: false }, "Your actual fan count (Club page, and the Fan Popularity leaderboard under Menu) is a real number \u2014 hundreds for a Sunday League club, potentially millions for an established giant \u2014 separate from how many people can fit in your stadium. It grows permanently through real achievements: titles, promotions, cup wins, and running a TV advertising campaign (Club page, real money, a genuine but modest fanbase boost, once every couple of months). Rare random events \u2014 good and bad \u2014 can also nudge things, shown in Menu \u2192 Messages alongside routine board and fan sentiment."),
+                React.createElement(GuideSection, { title: "Scouting", sub: guideSub, dark: dark, defaultOpen: false },
+                    "Hire a chief scout (Menu \u2192 Scouting) from a pool of specialists \u2014 youth prospects, proven quality, bargains, defensive or attacking talent \u2014 each with their own skill level and wage. ",
+                    React.createElement("strong", null, "Unlocks from Season 2"),
+                    " \u2014 the board wants to see a full season out of you first. They can turn you down, especially if your reputation doesn't match their standards, and a refusal means waiting before trying again. Once hired, they surface a fresh shortlist of recommended targets every few weeks, one tap from their full profile. Only one scout can be employed across your controlled clubs at a time."),
+                React.createElement(GuideSection, { title: "Reputation & Wonderkids", sub: guideSub, dark: dark, defaultOpen: false }, "Every player has a Reputation, shown on their profile \u2014 a genuinely different number from Overall and Potential. It's built from their current ability, the prestige of their club, and their age, so a talented but unproven 20-year-old reads as unknown even at a decent overall, while an established player at a big club (or a real career achievement like Player of the Season) reads as properly well-known. A famous player is also harder to prise away in a transfer, independent of whether they're technically the squad's best player. Your scout's shortlist shows Potential as a range rather than an exact number too \u2014 a poor scout gives a rough guess, an elite one narrows it close to the real figure \u2014 while Overall always stays exact, since a scout can see how good someone is right now just by watching them play. Roughly 1 in 40 youth debuts (better odds from a higher-tier academy) is a genuine wonderkid \u2014 low overall today, but a real, marked \"\u2B50 WONDERKID\" ceiling worth building a squad around."),
+                React.createElement(GuideSection, { title: "Youth Academy", sub: guideSub, dark: dark, defaultOpen: false },
+                    "A genuinely different way to build a squad \u2014 instead of buying a finished player, you're betting on one who doesn't exist yet. Three purchasable tiers (Finance page, ",
+                    React.createElement("strong", null, "unlocks Season 2"),
+                    ") each raise the odds of your academy producing a raw, high-potential graduate at the start of the following season, straight onto your books \u2014 nobody else ever sees them on the open market. No further action needed once you've invested; graduates just appear when they're ready."),
+                React.createElement(GuideSection, { title: "Stadium", sub: guideSub, dark: dark, defaultOpen: false },
+                    "Also on the Finance page: your capacity, last attendance, live ticket price estimate, and ground condition, which quietly wears down every week and drags down both price and attendance if left too low \u2014 Repair Ground brings it back to full for less than a full upgrade costs. Two permanent upgrades are available: Expand Capacity (more seats, straightforwardly more fans through the gate) \u2014 ",
+                    React.createElement("strong", null, "unlocks Season 2"),
+                    " \u2014 and Upgrade Facilities (raises your ticket price and merch ceiling for good) \u2014 ",
+                    React.createElement("strong", null, "unlocks Season 3"),
+                    ", and even then only one facilities tier roughly every two seasons, however much money you throw at it. Big infrastructure takes time, whatever your budget. Every stadium also has a proper name, shown on the matchday header."),
+                React.createElement(GuideSection, { title: "Kit Colours", sub: guideSub, dark: dark, defaultOpen: false }, "Club \u2192 Kit Colours has a real home and away kit for every club \u2014 every well-known club defaults to its actual real-world colours (Liverpool is red, not whatever a random generator landed on), including a genuine pattern for the truly iconic ones like Newcastle's stripes or Celtic's hoops. Pick your own primary, secondary, and pattern (Solid, Stripes, Hoops, or Halves) for either kit, home team wears its home kit and away team wears its away kit on the live pitch view, and it's all editable for any club \u2014 including your own custom slot \u2014 from here or from the Editor on the landing page."),
+                React.createElement(GuideSection, { title: "The Board & Your Job", sub: guideSub, dark: dark, defaultOpen: false }, "Every season the board sets a realistic objective for your club \u2014 win the league, push for promotion, avoid relegation, or a mid-table finish, depending on where you sit. Board confidence nudges up or down a little every week based on that week's result, drains slowly if you're deep in the relegation zone or sitting in debt, and moves more decisively at season review based on whether you met your objective. You can also Issue an Ultimatum (Finance page) demanding transfer funds \u2014 higher confidence and good form make the board more likely to listen, but pushing your luck while they're already unhappy can badly backfire. Hit zero confidence and you're sacked. Separately, your Manager Reputation follows you between jobs, tracked independently for each manager if you're playing with someone else: a big season can be enough to earn a genuine job offer from a bigger club, which you can accept or turn down."),
+                React.createElement(GuideSection, { title: "Between Jobs", sub: guideSub, dark: dark, defaultOpen: false }, "Get sacked, and you can spectate rather than immediately picking a new club \u2014 the league keeps running, and you can take a job whenever one genuinely opens up. Menu \u2192 Job Information shows every club's manager situation at a glance, from Secure through to Very Insecure, and Vacant posts where nobody's in charge at all. You can only take a job that's actually vacant \u2014 the same as it works when you're already employed \u2014 but a vacancy can appear at any time if the board loses patience with someone else, so it's worth checking back."),
+                React.createElement(GuideSection, { title: "Backroom Staff", sub: guideSub, dark: dark, defaultOpen: false }, "Hire an Assistant Coach, Club Doctor, or Fitness Coach from Club \u2192 Staff \u2014 one hire per role, each with a genuine effect, not flavour. A good coach raises the odds of a player actually developing each season; a good doctor cuts real weeks off a rehab and lowers the odds of a setback; a good fitness coach slows how fast match fatigue builds across a season. New candidates join the market most seasons, so it's worth checking back rather than a one-time decision \u2014 and replacing someone within their first 8 weeks costs a real severance payment, so it's a genuine commitment, not a costless toggle."),
+                React.createElement(GuideSection, { title: "Training", sub: guideSub, dark: dark, defaultOpen: false }, "Set a weekly Training Focus on the Club page \u2014 any stat, or Balanced \u2014 which applies to the whole squad. Individual players can also be given their own focus from their profile, overriding the squad-wide plan just for them. It's free, so there's no reason to leave it unset."),
+                React.createElement(GuideSection, { title: "Rivalries & Club Identity", sub: guideSub, dark: dark, defaultOpen: false }, "Every club has its own identity \u2014 Attacking, Defensive, Youth-Focused, Star-Studded, or Balanced \u2014 shown on its Club page and in World \u2192 All Clubs, and it genuinely drives AI behaviour: an Attacking club actually sets its tempo to attack, a Youth-Focused one actually reaches for younger prospects when signing, a Star-Studded one actually chases the recognisable name. Clubs also develop real rivalries \u2014 automatically for anyone sharing a city, or organically for any two clubs who've simply faced each other 6 or more times over your save. A \uD83D\uDD25 DERBY tag shows on the fixture when it applies, and winning or losing one swings your fans' mood noticeably harder than an ordinary result."),
+                React.createElement(GuideSection, { title: "Competitions", sub: guideSub, dark: dark, defaultOpen: false }, "Five divisions. At each boundary, 1st place goes straight up and last place goes straight down automatically \u2014 but there's now a one-off decider in an extra week after the league season finishes, at every boundary: the runner-up chasing promotion from below plays the second-from-bottom side fighting relegation from above. Win it as the promotion side and you're both up \u2014 and the team you beat goes down too, on top of the automatic bottom side. Win it as the survival side and nothing extra moves \u2014 you both stay exactly where you finished. Level after 90 minutes goes to penalties, no draws allowed. Every division also runs its own knockout cup \u2014 Premier Cup, Next Up Cup, Rising Cup, Emerging Cup, and Sunday Cup \u2014 each with its own winner and prize money. The final few clubs of each division cup automatically qualify for the Empire Cup, a cross-division knockout that draws itself the moment all five division cups have reached that point, right through to a final each season."),
+                React.createElement(GuideSection, { title: "History, Stats & Achievements", sub: guideSub, dark: dark, defaultOpen: false }, "Menu \u2192 History & Stats has final tables and Hall of Fame links for every completed season. Menu \u2192 Player Records is a proper leaderboard for goals, assists, and Man of the Match \u2014 filterable by season, division, or club, and includes a genuine \"Find Any Player\" search covering everyone in the game regardless of who they currently play for. Any player's profile also has a week-by-week season history, including loan spells and mid-season transfers shown clearly with dividers. Menu \u2192 Match Results is filterable by club, competition, and season. Menu \u2192 Achievements covers 37 in total, spanning money, goals, trophies, promotions, win rate, and more \u2014 all measured against where you started or what you've actually done, not what you were handed at kick-off, so picking a big, wealthy club doesn't hand you a head start."),
+                React.createElement(GuideSection, { title: "Manager Leaderboard", sub: guideSub, dark: dark, defaultOpen: false }, "Menu \u2192 Manager Leaderboard compares reputation, win rate, and trophies for every manager in the game, toggleable between All Time and This Season \u2014 mainly built for two-player games so you can see who's actually doing better, not just whose club is doing better, but it also includes a genuine \"Find Any Manager\" search covering everyone, including managers currently between jobs who wouldn't otherwise appear in the ranked list at all."),
+                React.createElement(GuideSection, { title: "Season 1 Restrictions", sub: guideSub, dark: dark, defaultOpen: false }, "A handful of things are deliberately locked away for your first season, so early progress has to be earned rather than bought or picked on day one: Scouting (unlocks Season 2), the Youth Academy (Season 2), Expand Capacity (Season 2), Upgrade Facilities (Season 3, then capped to roughly one tier every two seasons after that regardless of budget), and the very best free agents \u2014 85+ overall \u2014 who simply don't appear in the Transfer Market until Season 2. Everything else is available from the first whistle."),
+                React.createElement(GuideSection, { title: "Saving", sub: guideSub, dark: dark, defaultOpen: false }, "The game autosaves to this browser after every match and every week \u2014 you don't need to do anything. Everything lives in this browser's storage by default, so it won't follow you to a different phone or browser on its own. To actually move a save, use Export on any slot in Load Game \u2014 it downloads a real file \u2014 then Import that file wherever you want to continue. Manual Save/Load and Restart Game both live under Manager \u2192 Save & Load \u2014 Restart wipes everything and takes you back to club selection, if you ever want a completely fresh start."))));
     }
     const guideContent = guideContentFn(false);
     if (phase === "home") {
@@ -6463,6 +6798,20 @@ function App() {
                         React.createElement("label", { className: "block text-[10px]", style: { color: "#8A9A8D" } },
                             "Name",
                             React.createElement("input", { value: editorDraft.name, onChange: (e) => setEditorDraft((d) => ({ ...d, name: e.target.value })), className: "w-full mt-0.5 rounded px-2 py-1.5 text-xs", style: { backgroundColor: "#1B241C", color: "#FFF", border: "1px solid #2A3A2D" } })),
+                        React.createElement("div", null,
+                            React.createElement("div", { className: "text-[10px] mb-1.5", style: { color: "#8A9A8D" } }, "Kit Colours"),
+                            ["home", "away"].map((kitType) => {
+                                const field = kitType === "home" ? "homeKit" : "awayKit";
+                                const kit = editorDraft[field] || realKitFor(editingClubId);
+                                const palette = ["#FFFFFF", "#000000", "#EF0107", "#034694", "#6CABDD", "#018749", "#FBE122", "#FEBE10", "#670E36", "#F18A00", "#5B2D8C", "#4A4A4A"];
+                                return (React.createElement("div", { key: kitType, className: "mb-2.5 last:mb-0" },
+                                    React.createElement("div", { className: "text-[9px] font-bold mb-1", style: { color: "#8A9A8D" } }, kitType.toUpperCase()),
+                                    React.createElement("div", { className: "flex items-start gap-2" },
+                                        React.createElement("div", { className: "rounded flex-shrink-0", style: { width: 28, height: 28, backgroundColor: kit.primary, border: `3px solid ${kit.secondary}` } }),
+                                        React.createElement("div", { className: "flex-1" },
+                                            React.createElement("div", { className: "flex flex-wrap gap-1 mb-1" }, palette.map((c) => React.createElement("button", { key: c, onClick: () => setEditorDraft((d) => ({ ...d, [field]: { ...(d[field] || kit), primary: c } })), className: "rounded-full flex-shrink-0", style: { width: 14, height: 14, backgroundColor: c, border: kit.primary === c ? "2px solid #D9A441" : "1px solid #444" } }))),
+                                            React.createElement("div", { className: "flex flex-wrap gap-1" }, palette.map((c) => React.createElement("button", { key: c, onClick: () => setEditorDraft((d) => ({ ...d, [field]: { ...(d[field] || kit), secondary: c } })), className: "rounded-full flex-shrink-0", style: { width: 14, height: 14, backgroundColor: c, border: kit.secondary === c ? "2px solid #D9A441" : "1px solid #444" } })))))));
+                            })),
                         React.createElement("div", { className: "grid grid-cols-3 gap-2" },
                             React.createElement("label", { className: "text-[10px]", style: { color: "#8A9A8D" } },
                                 "Tier (1-5)",
@@ -6617,7 +6966,9 @@ function App() {
             let best = null, bestRating = -1;
             allOnPitch.forEach((p) => {
                 const goals = goalEvents.filter((e) => e.scorerId === p.id).length;
-                const rating = livePlayerRating(p.id, p.position === "GK", goals, m.playerStats, m.stamina[p.id]);
+                const assists = goalEvents.filter((e) => e.assistId === p.id).length;
+                const conceded = p.clubId === m.homeId ? ag : hg;
+                const rating = livePlayerRating(p, p.position === "GK", goals, assists, m.playerStats, m.stamina[p.id], conceded);
                 if (rating > bestRating) {
                     bestRating = rating;
                     best = p;
@@ -6740,7 +7091,7 @@ function App() {
                             "'"),
                         c.text)))))),
                 matchViewTab === "pitch" && (React.createElement("div", { className: "mb-4" },
-                    React.createElement(MatchPitchView, { homeXI: m.homeXI, awayXI: m.awayXI, homeFormation: m.homeFormation, awayFormation: m.awayFormation, ballPosition: m.ballPosition, homeName: home.name, awayName: away.name, secondHalf: m.minute >= 45, minute: m.minute, reduceMotion: reducePitchMotion, commentary: m.commentary }))),
+                    React.createElement(MatchPitchView, { homeXI: m.homeXI, awayXI: m.awayXI, homeFormation: m.homeFormation, awayFormation: m.awayFormation, ballPosition: m.ballPosition, homeName: home.name, awayName: away.name, secondHalf: m.minute >= 45, minute: m.minute, reduceMotion: reducePitchMotion, commentary: m.commentary, homeKit: kitFor(home, true), awayKit: kitFor(away, false) }))),
                 matchViewTab === "stats" && (() => {
                     const totalPoss = (m.homePossession || 0) + (m.awayPossession || 0);
                     const homePct = totalPoss > 0 ? Math.round(((m.homePossession || 0) / totalPoss) * 100) : 50;
@@ -6969,6 +7320,20 @@ function App() {
                         "\u2B50 Potential: ",
                         viewingPlayer.potential,
                         " \u2014 room to develop")),
+                    React.createElement("div", { className: "text-[10px] mb-2", style: { color: "#6B5B95" } },
+                        "\uD83D\uDCE3 Reputation: ",
+                        playerReputation(viewingPlayer, clubsById[viewingPlayer.clubId]),
+                        " \u2014 ",
+                        playerReputation(viewingPlayer, clubsById[viewingPlayer.clubId]) >= 80 ? "A genuinely famous name" : playerReputation(viewingPlayer, clubsById[viewingPlayer.clubId]) >= 60 ? "Well known in the game" : playerReputation(viewingPlayer, clubsById[viewingPlayer.clubId]) >= 40 ? "Building a name for themselves" : "Still largely unknown"),
+                    viewingPlayer.isWonderkid && (React.createElement("div", { className: "text-[10px] font-bold mb-2 rounded px-2 py-1", style: { color: "#B8860B", backgroundColor: "rgba(184,134,11,0.1)" } }, "\u2B50 A genuine wonderkid \u2014 this ceiling doesn't come around often.")),
+                    (() => { const pKey = personalityFor(viewingPlayer); const info = PERSONALITY_TYPES[pKey]; return (React.createElement("div", { className: "text-[10px] mb-2", title: info.desc },
+                        info.icon,
+                        " ",
+                        React.createElement("span", { className: "font-bold" }, info.label),
+                        " ",
+                        React.createElement("span", { style: { color: C.sub } },
+                            "\u2014 ",
+                            info.desc))); })(),
                     viewingPlayer.releaseRequested && (React.createElement("div", { className: "text-[10px] mb-2 rounded px-2 py-1", style: { backgroundColor: "#FBEDEA", color: C.red } }, "\u26A0 Unhappy and has requested a release.")),
                     React.createElement("div", { className: "flex gap-1.5 mb-3" },
                         React.createElement(Pill, { active: playerProfileView === "overview", onClick: () => setPlayerProfileView("overview") }, "Overview"),
@@ -7322,24 +7687,28 @@ function App() {
        ======================================================================= */
     const squadPlayers = playersOfClub(activeClubId)
         .filter((p) => squadFilter.pos === "all" || p.position === squadFilter.pos)
-        .sort((a, b) => (squadFilter.sort === "overall" ? b.overall - a.overall : b[squadFilter.sort] - a[squadFilter.sort]));
+        .sort((a, b) => (squadFilter.sort === "overall" ? b.overall - a.overall : squadFilter.sort === "position" ? (POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position) || b.overall - a.overall) : b[squadFilter.sort] - a[squadFilter.sort]));
     const myDivision = activeClub ? DIVISIONS_SEED.find((d) => d.id === activeClub.divisionId) : null;
     const xiIdsForActive = activeClub ? new Set(Object.values(activeClub.lineup || {}).filter(Boolean)) : new Set();
     const menuActive = ["menu", "cup", "clubs", "history", "news", "fixtures", "market", "finance", "results", "achievements", "guide", "scouting", "leaderboard"].includes(tab);
     const CLUB_HUB_ITEMS = [
         { key: "squad", label: "Squad", icon: "👥" },
-        { key: "club", label: "Tactics & Info", icon: "🛡️" },
         { key: "staff", label: "Staff", icon: "🩺" },
         { key: "finance", label: "Finance", icon: "💰" },
+        { key: "academy", label: "Youth Academy", icon: "🌱" },
         { key: "sponsorship", label: "Sponsorship", icon: "📋" },
+        { key: "kit", label: "Kit Colours", icon: "🎽" },
     ];
     const MANAGER_HUB_ITEMS = [
         { key: "messages", label: "Messages", icon: "💬" },
         { key: "jobinfo", label: "Job Info", icon: "🧳" },
+        { key: "boardobjectives", label: "Board & Objectives", icon: "🏛️" },
+        { key: "training", label: "Training", icon: "📋" },
         { key: "fixtures", label: "Fixtures", icon: "📅" },
         { key: "scouting", label: "Scouting", icon: "🔭" },
         { key: "leaderboard", label: "Leaderboard", icon: "🏅" },
         { key: "achievements", label: "Achievements", icon: "🏆" },
+        { key: "savepage", label: "Save & Load", icon: "💾" },
         { key: "guide", label: "How to Play", icon: "📖" },
     ];
     const WORLD_HUB_ITEMS = [
@@ -7431,7 +7800,8 @@ function App() {
                     return (React.createElement("div", { className: "rounded-lg p-4 mb-3 border", style: { backgroundColor: C.card, borderColor: C.border } }, upcoming ? (React.createElement(React.Fragment, null,
                         React.createElement("div", { className: "flex items-center gap-1.5 mb-3" },
                             React.createElement("span", { className: "text-[9px] font-bold px-2 py-0.5 rounded-full", style: { backgroundColor: isPlayoffMatch ? C.amber : C.greenDark, color: "#FFFFFF" } }, hasFixture ? myDivision?.name?.toUpperCase() : isPlayoffMatch ? `${myPlayoffTie.promoClubId === activeClubId ? "PROMOTION" : "SURVIVAL"} PLAYOFF` : (myCupInfo?.cupName || "CUP").toUpperCase()),
-                            React.createElement("span", { className: "text-[9px] font-bold px-2 py-0.5 rounded-full border", style: { borderColor: C.border, color: C.sub } }, isHome ? "HOME" : "AWAY")),
+                            React.createElement("span", { className: "text-[9px] font-bold px-2 py-0.5 rounded-full border", style: { borderColor: C.border, color: C.sub } }, isHome ? "HOME" : "AWAY"),
+                            opp && areRivals(activeClubId, opp.id) && React.createElement("span", { className: "text-[9px] font-bold px-2 py-0.5 rounded-full", style: { backgroundColor: "#B8390E", color: "#FFFFFF" } }, "\uD83D\uDD25 DERBY")),
                         React.createElement("div", { className: "flex items-center justify-between" },
                             React.createElement("div", { className: "flex-1 text-center" },
                                 React.createElement("div", { className: "pse-display text-lg leading-tight" }, activeClub.name)),
@@ -7441,7 +7811,12 @@ function App() {
                         React.createElement("div", { className: "text-[10px] text-center mt-1.5", style: { color: C.sub } },
                             hasFixture ? `Week ${week}` : isPlayoffMatch ? "One match, no draw — penalties if level" : "Knockout tie",
                             isHome ? " · Your ground" : " · Away"),
-                        React.createElement("div", { className: "text-[10px] text-center mt-2 font-bold", style: { color: C.amber } }, "Ready when you are \u2014 use the \u25B6 button below to kick off."))) : (React.createElement(React.Fragment, null,
+                        lineupBlockMessage ? (React.createElement("div", { className: "rounded-lg p-2.5 mt-2 border", style: { borderColor: C.red, backgroundColor: "rgba(200,60,60,0.08)" } },
+                            React.createElement("div", { className: "text-[10px] font-bold mb-1", style: { color: C.red } }, "Can't kick off yet \u2014 your lineup isn't ready:"),
+                            lineupBlockMessage.map((issue, i) => (React.createElement("div", { key: i, className: "text-[10px]", style: { color: C.red } },
+                                "\u2022 ",
+                                issue))),
+                            React.createElement("button", { onClick: () => setTab("squad"), className: "text-[9px] font-bold mt-1.5 underline", style: { color: C.red } }, "Go fix it on the Squad tab"))) : (React.createElement("div", { className: "text-[10px] text-center mt-2 font-bold", style: { color: C.amber } }, "Ready when you are \u2014 use the \u25B6 button below to kick off.")))) : (React.createElement(React.Fragment, null,
                         React.createElement("div", { className: "text-xs text-center mb-1", style: { color: C.sub } },
                             "No match waiting for ",
                             activeClub.name,
@@ -7470,7 +7845,7 @@ function App() {
                                 playersOfClub(activeClubId).sort((a, b) => (role === "corner" ? b.passing - a.passing : b.shooting - a.shooting)).map((p) => React.createElement("option", { key: p.id, value: p.id }, p.name))))))))),
                 React.createElement("div", { className: "rounded-lg p-4 mb-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
                     React.createElement("div", { className: "flex items-center justify-between mb-2" },
-                        React.createElement("div", { className: "text-[11px] tracking-widest font-bold", style: { color: C.green } }, "STARTING XI"),
+                        React.createElement("div", { className: "text-[11px] tracking-widest font-bold", style: { color: C.green } }, "LINEUP"),
                         React.createElement("span", { className: "text-sm font-black", style: { color: xiAverageOverall(activeClub, playersOfClub(activeClubId)) >= 70 ? C.green : C.text } },
                             xiAverageOverall(activeClub, playersOfClub(activeClubId)),
                             " OVR AVG")),
@@ -7528,6 +7903,28 @@ function App() {
                         React.createElement(Ico, { e: "\u2795", size: 13 }),
                         " Transfer Market")),
                 (() => {
+                    const squadForStats = playersOfClub(activeClubId);
+                    if (!squadForStats.length)
+                        return null;
+                    const avgOverall = Math.round(squadForStats.reduce((s, p) => s + p.overall, 0) / squadForStats.length);
+                    const avgAge = (squadForStats.reduce((s, p) => s + p.age, 0) / squadForStats.length).toFixed(1);
+                    const breakoutCount = squadForStats.filter((p) => isBreakoutCandidate(p)).length;
+                    const wonderkidCount = squadForStats.filter((p) => p.isWonderkid).length;
+                    return (React.createElement("div", { className: "rounded-lg p-3 mb-3 border grid grid-cols-4 gap-2 text-center", style: { backgroundColor: C.card, borderColor: C.border } },
+                        React.createElement("div", null,
+                            React.createElement("div", { className: "text-sm font-black" }, avgOverall),
+                            React.createElement("div", { className: "text-[8px]", style: { color: C.sub } }, "AVG OVR")),
+                        React.createElement("div", null,
+                            React.createElement("div", { className: "text-sm font-black" }, avgAge),
+                            React.createElement("div", { className: "text-[8px]", style: { color: C.sub } }, "AVG AGE")),
+                        React.createElement("div", null,
+                            React.createElement("div", { className: "text-sm font-black", style: { color: breakoutCount ? C.green : C.text } }, breakoutCount),
+                            React.createElement("div", { className: "text-[8px]", style: { color: C.sub } }, "ONES TO WATCH")),
+                        React.createElement("div", null,
+                            React.createElement("div", { className: "text-sm font-black", style: { color: wonderkidCount ? "#B8860B" : C.text } }, wonderkidCount),
+                            React.createElement("div", { className: "text-[8px]", style: { color: C.sub } }, "WONDERKIDS"))));
+                })(),
+                (() => {
                     const onLoanOut = world.players.filter((p) => p.loanParentClubId === activeClubId);
                     if (!onLoanOut.length)
                         return null;
@@ -7574,6 +7971,7 @@ function App() {
                     React.createElement(Pill, { active: squadFilter.pos === "all", onClick: () => setSquadFilter((f) => ({ ...f, pos: "all" })) }, "All"),
                     POSITIONS.map((p) => React.createElement(Pill, { key: p, active: squadFilter.pos === p, onClick: () => setSquadFilter((f) => ({ ...f, pos: p })) }, p)),
                     React.createElement("select", { value: squadFilter.sort, onChange: (e) => setSquadFilter((f) => ({ ...f, sort: e.target.value })), className: "rounded-full px-2 py-1 text-[10px] ml-auto border", style: selStyle },
+                        React.createElement("option", { value: "position" }, "Sort: Position (GK\u2192FW)"),
                         React.createElement("option", { value: "overall" }, "Sort: Overall"),
                         STAT_KEYS.map((k) => React.createElement("option", { key: k, value: k },
                             "Sort: ",
@@ -7621,11 +8019,46 @@ function App() {
                             " \u00B7 physical ",
                             p.physical)))),
                     squadPlayers.length === 0 && React.createElement("div", { className: "text-xs italic col-span-2", style: { color: C.sub } }, "No players match this filter.")))),
-            tab === "club" && activeClub && (React.createElement("div", { className: "space-y-4" },
-                React.createElement("div", { className: "rounded-lg p-4 border", style: { backgroundColor: C.card, borderColor: C.border } },
-                    React.createElement("div", { className: "pse-display text-xl mb-1 flex items-center gap-2" },
-                        React.createElement(ClubCrest, { club: activeClub, size: 26 }),
-                        activeClub.name),
+            tab === "table" && (React.createElement("div", { className: "space-y-5" },
+                React.createElement("div", { className: "text-[10px]", style: { color: C.sub } },
+                    "Season ",
+                    season,
+                    " \u00B7 ",
+                    React.createElement("span", { style: { color: C.green } }, "green bar"),
+                    " = automatic (1st up, last down), ",
+                    React.createElement("span", { style: { color: C.amber } }, "amber bar"),
+                    " = playoff decider."),
+                playoffTies.length > 0 && (React.createElement("div", { className: "rounded-lg p-3 border", style: { backgroundColor: C.cardAlt, borderColor: C.amber } },
+                    React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1", style: { color: C.amber } }, "\uD83C\uDF9F\uFE0F PLAYOFF WEEK"),
+                    React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "Promotion chaser vs relegation-threatened, one match each boundary. Win it and go up; lose it as the top-flight side and go down instead of surviving."),
+                    React.createElement("div", { className: "space-y-1.5" }, playoffTies.map((t) => (React.createElement("div", { key: t.id, className: "flex items-center justify-between text-xs px-1 py-0.5" },
+                        React.createElement("span", null,
+                            DIVISIONS_SEED[t.boundaryIdx]?.name,
+                            " / ",
+                            DIVISIONS_SEED[t.boundaryIdx + 1]?.name,
+                            ": ",
+                            clubsById[t.promoClubId]?.name,
+                            " vs ",
+                            clubsById[t.surviveClubId]?.name),
+                        t.played ? React.createElement("span", { className: "font-bold" },
+                            t.winnerId === t.promoClubId ? `${clubsById[t.promoClubId]?.name} promoted!` : `${clubsById[t.surviveClubId]?.name} survive!`,
+                            t.penaltyScore ? " (pens)" : "") : React.createElement("span", { style: { color: C.sub } }, "Pending"))))))),
+                DIVISIONS_SEED.map((div, idx) => (React.createElement("div", { key: div.id },
+                    React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, div.name.toUpperCase()),
+                    React.createElement(LeagueTableView, { rows: tableFor(div.id), divIndex: idx, matchHistory: matchHistory })))))),
+            tab === "clubhub" && activeClub && (React.createElement("div", null,
+                React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } },
+                    "\uD83D\uDEE1\uFE0F ",
+                    activeClub.name.toUpperCase()),
+                (() => { const idKey = clubIdentityFor(activeClub); const info = CLUB_IDENTITIES[idKey]; return (React.createElement("div", { className: "text-[10px] mb-2", title: info.desc },
+                    info.icon,
+                    " ",
+                    React.createElement("span", { className: "font-bold" }, info.label),
+                    " ",
+                    React.createElement("span", { style: { color: C.sub } },
+                        "\u2014 ",
+                        info.desc))); })(),
+                React.createElement("div", { className: "rounded-lg p-4 border mb-3", style: { backgroundColor: C.card, borderColor: C.border } },
                     React.createElement("div", { className: "flex items-center justify-between mb-3" },
                         React.createElement("div", { className: "text-[10px]", style: { color: C.sub } },
                             activeClub.city,
@@ -7665,42 +8098,7 @@ function App() {
                                     React.createElement("div", { className: "font-black text-lg", style: { color: weeksOfCover < 8 ? C.red : weeksOfCover < 20 ? C.amber : C.text } },
                                         weeksOfCover,
                                         "wk"))));
-                        })()),
-                    activeClub.formation && (React.createElement("div", { className: "mb-1" },
-                        React.createElement("div", { className: "text-[9px] tracking-widest font-bold mb-1.5", style: { color: C.sub } },
-                            "STARTING XI \u2014 ",
-                            activeClub.formation),
-                        React.createElement(ReadOnlyPitch, { club: activeClub, squadPlayers: playersOfClub(activeClub.id) }))),
-                    React.createElement("div", { className: "flex gap-2" },
-                        React.createElement("button", { onClick: () => { setTab("finance"); }, className: "flex-1 py-2 rounded-lg text-xs font-bold border", style: { borderColor: C.border, color: C.text } }, "View Finances"),
-                        React.createElement("button", { onClick: () => { setResultsFilter({ season: "all", divisionId: "all", clubId: activeClubId }); setTab("results"); }, className: "flex-1 py-2 rounded-lg text-xs font-bold border", style: { borderColor: C.border, color: C.text } }, "Match History"))),
-                React.createElement("div", { className: "rounded-lg p-4 border", style: { backgroundColor: C.card, borderColor: C.border } },
-                    React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "BOARD EXPECTATIONS"),
-                    React.createElement("div", { className: "text-xs font-semibold mb-2" }, OBJECTIVE_LABELS[activeClub.seasonObjective] || "Settle in and get to know the squad"),
-                    React.createElement("div", { className: "flex justify-between text-[10px] mb-1", style: { color: C.sub } },
-                        React.createElement("span", null, "Board confidence"),
-                        React.createElement("span", { className: "font-bold", style: { color: C.text } },
-                            activeClub.boardConfidence ?? 62,
-                            "/100",
-                            activeClub.boardConfidenceLastDelta ? React.createElement("span", { style: { color: activeClub.boardConfidenceLastDelta > 0 ? C.green : C.red } },
-                                " ",
-                                activeClub.boardConfidenceLastDelta > 0 ? "↑" : "↓") : null)),
-                    React.createElement("div", { className: "h-2 rounded-full overflow-hidden mb-3", style: { backgroundColor: C.cardAlt } },
-                        React.createElement("div", { className: "h-full", style: { width: `${activeClub.boardConfidence ?? 62}%`, backgroundColor: (activeClub.boardConfidence ?? 62) < 25 ? C.red : (activeClub.boardConfidence ?? 62) < 50 ? C.amber : C.green } })),
-                    (activeClub.boardConfidence ?? 62) < 25 && React.createElement("div", { className: "text-[10px] mb-2", style: { color: C.red } }, "Your job is genuinely at risk. Results need to turn around."),
-                    (() => {
-                        const nowIdx = season * 1000 + week;
-                        const onCooldown = activeClub.lastUltimatumWeek != null && nowIdx - activeClub.lastUltimatumWeek < 12;
-                        return (React.createElement("button", { onClick: () => issueUltimatum(activeClubId), disabled: onCooldown, className: "w-full mb-3 py-2 rounded-lg text-xs font-bold border disabled:opacity-40", style: { borderColor: C.amber, color: C.amber } }, onCooldown ? "Already made your case recently — give it time" : "📣 Issue an Ultimatum — demand transfer funds"));
-                    })(),
-                    React.createElement("div", { className: "flex justify-between text-[10px] mb-1", style: { color: C.sub } },
-                        React.createElement("span", null, "Manager reputation (follows you between clubs)"),
-                        React.createElement("span", { className: "font-bold", style: { color: C.text } },
-                            managerReputation,
-                            "/100")),
-                    React.createElement("div", { className: "h-2 rounded-full overflow-hidden", style: { backgroundColor: C.cardAlt } },
-                        React.createElement("div", { className: "h-full", style: { width: `${managerReputation}%`, backgroundColor: C.amber } })),
-                    React.createElement("div", { className: "text-[10px] mt-2", style: { color: C.sub } }, "A big season \u2014 a title, promotion, or strongly beating your objective \u2014 can attract job offers from other clubs once reputation is high enough.")),
+                        })())),
                 React.createElement("div", { className: "rounded-lg p-4 border", style: { backgroundColor: C.card, borderColor: C.border } },
                     React.createElement("div", { className: "flex items-center gap-2 text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } },
                         React.createElement(Ico, { e: "\uD83C\uDFC6", size: 13 }),
@@ -7716,70 +8114,6 @@ function App() {
                             t.cupName,
                             " Winners \u2014 Season ",
                             t.season)))))),
-                React.createElement("div", { className: "rounded-lg p-4 border", style: { backgroundColor: C.card, borderColor: C.border } },
-                    React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "TRAINING FOCUS"),
-                    React.createElement("div", { className: "text-[10px] mb-2", style: { color: C.sub } }, "Each week, squad players get a small chance of improving in this area \u2014 younger players develop faster. Doesn't cost anything."),
-                    React.createElement("div", { className: "flex flex-wrap gap-1.5" },
-                        React.createElement(Pill, { active: (activeClub.trainingFocus || "balanced") === "balanced", onClick: () => setTrainingFocus(activeClubId, "balanced") }, "Balanced"),
-                        STAT_KEYS.map((k) => React.createElement(Pill, { key: k, active: activeClub.trainingFocus === k, onClick: () => setTrainingFocus(activeClubId, k) }, STAT_LABEL[k])))),
-                React.createElement("div", { className: "rounded-lg p-4 border", style: { backgroundColor: C.card, borderColor: C.border } },
-                    React.createElement("div", { className: "flex items-center gap-2 text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } },
-                        React.createElement(Ico, { e: "\uD83D\uDCF0", size: 13 }),
-                        " ",
-                        activeClub.name.toUpperCase(),
-                        " NEWS"),
-                    React.createElement("div", { className: "space-y-1.5 max-h-40 overflow-y-auto" },
-                        news.filter((n) => (n.clubIds || []).includes(activeClubId)).slice(0, 10).map((n) => React.createElement("div", { key: n.id, className: "text-xs rounded px-2 py-1.5", style: { backgroundColor: C.cardAlt, color: C.text } }, n.text)),
-                        news.filter((n) => (n.clubIds || []).includes(activeClubId)).length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nothing yet. Check the News page in Menu for the wider league."))),
-                React.createElement("div", { className: "text-[10px] text-center", style: { color: C.sub } }, "Your progress auto-saves to this browser after every match and every week, in its own slot for this game. Use Save/Load below for an explicit backup, to move between devices, or to switch to a different saved game."),
-                React.createElement("div", { className: "flex gap-2" },
-                    React.createElement("button", { onClick: saveGame, className: "flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs font-bold", style: { borderColor: C.border } },
-                        React.createElement(Ico, { e: "\uD83D\uDCBE", size: 13 }),
-                        " Save"),
-                    React.createElement("button", { onClick: () => { setSaveSlots(loadSlotsIndex()); setShowSlotPicker(true); }, className: "flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs font-bold", style: { borderColor: C.border } },
-                        React.createElement(Ico, { e: "\uD83D\uDCC2", size: 13 }),
-                        " Load")),
-                React.createElement("button", { onClick: saveAsNewSlot, className: "w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold", style: { color: C.green } },
-                    React.createElement(Ico, { e: "\u2795", size: 12 }),
-                    " Save as a new game (keep this one too)"),
-                saveMsg && React.createElement("div", { className: "text-center text-[10px]", style: { color: C.green } }, saveMsg),
-                !confirmingRestart ? (React.createElement("button", { onClick: () => setConfirmingRestart(true), className: "w-full py-2 rounded-lg text-xs font-bold border", style: { borderColor: C.red, color: C.red } }, "Restart Game")) : (React.createElement("div", { className: "rounded-lg p-3 border", style: { borderColor: C.red, backgroundColor: "#FBEDEA" } },
-                    React.createElement("div", { className: "text-xs font-bold mb-1", style: { color: C.red } }, "Restart from scratch?"),
-                    React.createElement("div", { className: "text-[10px] mb-2", style: { color: C.text } }, "This wipes every club, player, season, and achievement and takes you back to club selection. Your current save will be overwritten. This can't be undone."),
-                    React.createElement("div", { className: "flex gap-2" },
-                        React.createElement("button", { onClick: restartGame, className: "flex-1 py-2 rounded-lg text-xs font-bold", style: { backgroundColor: C.red, color: "#FFFFFF" } }, "Yes, Restart"),
-                        React.createElement("button", { onClick: () => setConfirmingRestart(false), className: "flex-1 py-2 rounded-lg text-xs font-bold border", style: { borderColor: C.border, color: C.sub } }, "Cancel")))))),
-            tab === "table" && (React.createElement("div", { className: "space-y-5" },
-                React.createElement("div", { className: "text-[10px]", style: { color: C.sub } },
-                    "Season ",
-                    season,
-                    " \u00B7 ",
-                    React.createElement("span", { style: { color: C.green } }, "green bar"),
-                    " = automatic (1st up, last down), ",
-                    React.createElement("span", { style: { color: C.amber } }, "amber bar"),
-                    " = playoff decider."),
-                playoffTies.length > 0 && (React.createElement("div", { className: "rounded-lg p-3 border", style: { backgroundColor: C.cardAlt, borderColor: C.amber } },
-                    React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1", style: { color: C.amber } }, "\uD83C\uDF9F\uFE0F PLAYOFF WEEK"),
-                    React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "Promotion chaser vs relegation-threatened, one match each boundary. Win it and go up; lose it as the top-flight side and go down instead of surviving."),
-                    React.createElement("div", { className: "space-y-1.5" }, playoffTies.map((t) => (React.createElement("div", { key: t.id, className: "flex items-center justify-between text-xs px-1 py-0.5" },
-                        React.createElement("span", null,
-                            DIVISIONS_SEED[t.boundaryIdx]?.name,
-                            " / ",
-                            DIVISIONS_SEED[t.boundaryIdx + 1]?.name,
-                            ": ",
-                            clubsById[t.promoClubId]?.name,
-                            " vs ",
-                            clubsById[t.surviveClubId]?.name),
-                        t.played ? React.createElement("span", { className: "font-bold" },
-                            t.winnerId === t.promoClubId ? `${clubsById[t.promoClubId]?.name} promoted!` : `${clubsById[t.surviveClubId]?.name} survive!`,
-                            t.penaltyScore ? " (pens)" : "") : React.createElement("span", { style: { color: C.sub } }, "Pending"))))))),
-                DIVISIONS_SEED.map((div, idx) => (React.createElement("div", { key: div.id },
-                    React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, div.name.toUpperCase()),
-                    React.createElement(LeagueTableView, { rows: tableFor(div.id), divIndex: idx, matchHistory: matchHistory })))))),
-            tab === "clubhub" && activeClub && (React.createElement("div", null,
-                React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-3", style: { color: C.green } },
-                    "\uD83D\uDEE1\uFE0F ",
-                    activeClub.name.toUpperCase()),
                 (() => {
                     const items = news.filter((n) => (n.clubIds || []).includes(activeClubId)).slice(0, 3);
                     if (items.length === 0)
@@ -8265,6 +8599,119 @@ function App() {
                             React.createElement("button", { onClick: () => respondToCoachFeedback(m.id, "thanks"), className: "flex-1 text-[9px] font-bold py-1.5 rounded border", style: { borderColor: C.border, color: C.sub } }, "Let It Go"))))),
                         m.kind === "coach" && m.resolved && React.createElement("div", { className: "text-[9px] italic mt-1", style: { color: C.sub } }, "Handled.")))),
                     boardFanMessages.filter((m) => controlled.includes(m.clubId)).length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nothing yet \u2014 these turn up naturally as results and form swing one way or the other.")))),
+            tab === "boardobjectives" && activeClub && (React.createElement("div", null,
+                React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-3", style: { color: C.green } }, "BOARD & OBJECTIVES"),
+                (() => {
+                    const divRows = world.clubs.filter((c) => c.divisionId === activeClub.divisionId).sort((a, b) => b.pts - a.pts || (b.gf - b.ga) - (a.gf - a.ga));
+                    const pos = divRows.findIndex((c) => c.id === activeClubId) + 1;
+                    const total = divRows.length;
+                    const onTrackMap = { "win-league": pos <= 2, "promotion": pos <= Math.ceil(total * 0.3), "top-half": pos <= Math.ceil(total / 2), "mid-table": pos > Math.ceil(total * 0.25) && pos < Math.ceil(total * 0.75), "avoid-relegation": pos <= total - 3, "settle-in": true };
+                    const onTrack = onTrackMap[activeClub.seasonObjective];
+                    return (React.createElement("div", { className: "rounded-lg p-3 mb-3 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
+                        React.createElement("div", { className: "flex items-center justify-between" },
+                            React.createElement("span", { className: "text-xs", style: { color: C.sub } }, "Currently"),
+                            React.createElement(FormDots, { clubId: activeClub.id, matchHistory: matchHistory })),
+                        React.createElement("div", { className: "text-lg font-black" },
+                            pos,
+                            React.createElement("span", { style: { color: C.sub, fontWeight: 400, fontSize: 12 } },
+                                "/",
+                                total,
+                                " in ",
+                                myDivision?.name)),
+                        React.createElement("div", { className: "text-[10px] font-bold mt-0.5", style: { color: onTrack ? C.green : C.red } }, onTrack ? "✓ On track for your objective" : "⚠ Below where the board expects you")));
+                })(),
+                React.createElement("div", { className: "rounded-lg p-4 border", style: { backgroundColor: C.card, borderColor: C.border } },
+                    React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "BOARD EXPECTATIONS"),
+                    React.createElement("div", { className: "text-xs font-semibold mb-2" }, OBJECTIVE_LABELS[activeClub.seasonObjective] || "Settle in and get to know the squad"),
+                    React.createElement("div", { className: "flex justify-between text-[10px] mb-1", style: { color: C.sub } },
+                        React.createElement("span", null, "Board confidence"),
+                        React.createElement("span", { className: "font-bold", style: { color: C.text } },
+                            activeClub.boardConfidence ?? 62,
+                            "/100",
+                            activeClub.boardConfidenceLastDelta ? React.createElement("span", { style: { color: activeClub.boardConfidenceLastDelta > 0 ? C.green : C.red } },
+                                " ",
+                                activeClub.boardConfidenceLastDelta > 0 ? "↑" : "↓") : null)),
+                    React.createElement("div", { className: "h-2 rounded-full overflow-hidden mb-3", style: { backgroundColor: C.cardAlt } },
+                        React.createElement("div", { className: "h-full", style: { width: `${activeClub.boardConfidence ?? 62}%`, backgroundColor: (activeClub.boardConfidence ?? 62) < 25 ? C.red : (activeClub.boardConfidence ?? 62) < 50 ? C.amber : C.green } })),
+                    (activeClub.boardConfidence ?? 62) < 25 && React.createElement("div", { className: "text-[10px] mb-2", style: { color: C.red } }, "Your job is genuinely at risk. Results need to turn around."),
+                    React.createElement("div", { className: "text-[9px] mb-3", style: { color: C.sub } }, "Confidence nudges a little every week based on that week's result, drains faster if you're sat in the relegation zone deep into the season or stuck in debt, and moves the most decisively at season review based on whether you actually met this objective. Hit zero and you're sacked."),
+                    (() => {
+                        const nowIdx = season * 1000 + week;
+                        const onCooldown = activeClub.lastUltimatumWeek != null && nowIdx - activeClub.lastUltimatumWeek < 12;
+                        return (React.createElement("button", { onClick: () => issueUltimatum(activeClubId), disabled: onCooldown, className: "w-full mb-3 py-2 rounded-lg text-xs font-bold border disabled:opacity-40", style: { borderColor: C.amber, color: C.amber } }, onCooldown ? "Already made your case recently — give it time" : "📣 Issue an Ultimatum — demand transfer funds"));
+                    })(),
+                    React.createElement("div", { className: "flex justify-between text-[10px] mb-1", style: { color: C.sub } },
+                        React.createElement("span", null, "Manager reputation (follows you between clubs)"),
+                        React.createElement("span", { className: "font-bold", style: { color: C.text } },
+                            managerReputation,
+                            "/100")),
+                    React.createElement("div", { className: "h-2 rounded-full overflow-hidden", style: { backgroundColor: C.cardAlt } },
+                        React.createElement("div", { className: "h-full", style: { width: `${managerReputation}%`, backgroundColor: C.amber } })),
+                    React.createElement("div", { className: "text-[10px] mt-2", style: { color: C.sub } }, "A big season \u2014 a title, promotion, or strongly beating your objective \u2014 can attract job offers from other clubs once reputation is high enough.")),
+                activeClub.leagueTitles?.length > 0 && (React.createElement("div", { className: "rounded-lg p-3 mt-3 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
+                    React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1", style: { color: C.green } }, "YOUR TITLES HERE"),
+                    React.createElement("div", { className: "text-xs" },
+                        activeClub.leagueTitles.length,
+                        " league title",
+                        activeClub.leagueTitles.length === 1 ? "" : "s",
+                        " won as manager of ",
+                        activeClub.name,
+                        "."))))),
+            tab === "training" && activeClub && (React.createElement("div", null,
+                React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-3", style: { color: C.green } }, "TRAINING"),
+                (() => {
+                    const coach = staffFor(activeClubId, "coach");
+                    return (React.createElement("div", { className: "rounded-lg p-3 mb-3 border", style: { backgroundColor: coach ? C.cardAlt : C.card, borderColor: coach ? C.amber : C.border } }, coach ? (React.createElement(React.Fragment, null,
+                        React.createElement("div", { className: "text-xs font-bold mb-0.5" },
+                            "\uD83D\uDCCB ",
+                            coach.name,
+                            " \u2014 Assistant Coach"),
+                        React.createElement("div", { className: "text-[10px] font-bold", style: { color: C.green } }, staffEffectDescription("coach", coach.skill)))) : (React.createElement(React.Fragment, null,
+                        React.createElement("div", { className: "text-xs font-bold mb-0.5" }, "No Assistant Coach hired"),
+                        React.createElement("div", { className: "text-[10px]", style: { color: C.sub } }, "Training works fine without one, but a good coach genuinely raises the odds of a player developing each season."),
+                        React.createElement("button", { onClick: () => setTab("staff"), className: "text-[9px] font-bold mt-1.5 underline", style: { color: C.amber } }, "Go hire one on the Staff page")))));
+                })(),
+                React.createElement("div", { className: "rounded-lg p-4 mb-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
+                    React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "SQUAD DEFAULT FOCUS"),
+                    React.createElement("div", { className: "text-[10px] mb-2", style: { color: C.sub } }, "Each week, any squad player without their own individual focus set below gets a small chance of improving in this area \u2014 younger players develop faster. Doesn't cost anything."),
+                    React.createElement("div", { className: "flex flex-wrap gap-1.5" }, [["balanced", "Balanced"]].concat(STAT_KEYS.map((k) => [k, STAT_LABEL[k]])).map(([key, label]) => (React.createElement(Pill, { key: key, active: (activeClub.trainingFocus || "balanced") === key, onClick: () => setTrainingFocus(activeClubId, key === "balanced" ? "balanced" : key) }, label))))),
+                React.createElement("div", { className: "rounded-lg p-4 border", style: { backgroundColor: C.card, borderColor: C.border } },
+                    React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "INDIVIDUAL FOCUS"),
+                    React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Override the squad default for any specific player \u2014 useful for fast-tracking a young prospect in one area, or shoring up an ageing player's weak spot."),
+                    React.createElement("div", { className: "space-y-1.5" }, playersOfClub(activeClubId).sort((a, b) => a.name.localeCompare(b.name)).map((p) => (React.createElement("div", { key: p.id, className: "flex items-center justify-between gap-2 text-xs px-2.5 py-2 rounded border", style: { borderColor: C.border, backgroundColor: p.individualFocus ? C.cardAlt : "transparent" } },
+                        React.createElement("span", { className: "flex-shrink-0" },
+                            React.createElement("span", { className: "font-bold" }, p.name),
+                            " ",
+                            React.createElement("span", { style: { color: C.sub } },
+                                p.position,
+                                " \u00B7 Age ",
+                                p.age)),
+                        React.createElement("select", { value: p.individualFocus || "", onChange: (e) => setIndividualTrainingFocus(p.id, e.target.value || null), className: "border rounded px-1.5 py-1 text-[10px] flex-shrink-0", style: selStyle },
+                            React.createElement("option", { value: "" }, "Squad Default"),
+                            React.createElement("option", { value: "balanced" }, "Balanced"),
+                            STAT_KEYS.map((k) => React.createElement("option", { key: k, value: k }, STAT_LABEL[k])))))))))),
+            tab === "savepage" && (React.createElement("div", null,
+                React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "SAVE & LOAD"),
+                React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Manual backups, moving between devices, and starting completely fresh."),
+                React.createElement("div", { className: "rounded-lg p-4 border", style: { backgroundColor: C.card, borderColor: C.border } },
+                    React.createElement("div", { className: "text-[10px] text-center", style: { color: C.sub } }, "Your progress auto-saves to this browser after every match and every week, in its own slot for this game. Use Save/Load below for an explicit backup, to move between devices, or to switch to a different saved game."),
+                    React.createElement("div", { className: "flex gap-2" },
+                        React.createElement("button", { onClick: saveGame, className: "flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs font-bold", style: { borderColor: C.border } },
+                            React.createElement(Ico, { e: "\uD83D\uDCBE", size: 13 }),
+                            " Save"),
+                        React.createElement("button", { onClick: () => { setSaveSlots(loadSlotsIndex()); setShowSlotPicker(true); }, className: "flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs font-bold", style: { borderColor: C.border } },
+                            React.createElement(Ico, { e: "\uD83D\uDCC2", size: 13 }),
+                            " Load")),
+                    React.createElement("button", { onClick: saveAsNewSlot, className: "w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold", style: { color: C.green } },
+                        React.createElement(Ico, { e: "\u2795", size: 12 }),
+                        " Save as a new game (keep this one too)"),
+                    saveMsg && React.createElement("div", { className: "text-center text-[10px]", style: { color: C.green } }, saveMsg),
+                    !confirmingRestart ? (React.createElement("button", { onClick: () => setConfirmingRestart(true), className: "w-full py-2 rounded-lg text-xs font-bold border", style: { borderColor: C.red, color: C.red } }, "Restart Game")) : (React.createElement("div", { className: "rounded-lg p-3 border", style: { borderColor: C.red, backgroundColor: "#FBEDEA" } },
+                        React.createElement("div", { className: "text-xs font-bold mb-1", style: { color: C.red } }, "Restart from scratch?"),
+                        React.createElement("div", { className: "text-[10px] mb-2", style: { color: C.text } }, "This wipes every club, player, season, and achievement and takes you back to club selection. Your current save will be overwritten. This can't be undone."),
+                        React.createElement("div", { className: "flex gap-2" },
+                            React.createElement("button", { onClick: restartGame, className: "flex-1 py-2 rounded-lg text-xs font-bold", style: { backgroundColor: C.red, color: "#FFFFFF" } }, "Yes, Restart"),
+                            React.createElement("button", { onClick: () => setConfirmingRestart(false), className: "flex-1 py-2 rounded-lg text-xs font-bold border", style: { borderColor: C.border, color: C.sub } }, "Cancel"))))))),
             tab === "jobinfo" && world && (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "JOB INFORMATION"),
                 React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Every club's manager situation \u2014 vacant posts and shaky positions rise to the top."),
@@ -8349,6 +8796,37 @@ function App() {
                 React.createElement("div", { className: "rounded-lg p-4 border mb-4", style: { backgroundColor: C.card, borderColor: C.border } },
                     React.createElement("div", { className: "text-[9px] tracking-wide mb-1", style: { color: C.sub } }, "CURRENT BUDGET"),
                     React.createElement("div", { className: "text-3xl font-black", style: { color: activeClub.budget < 0 ? C.red : C.text } }, formatMoney(activeClub.budget)),
+                    (() => {
+                        const history = activeClub.budgetHistory || [];
+                        if (history.length < 2)
+                            return (React.createElement("div", { className: "text-[10px] mt-2", style: { color: C.sub } }, "Budget history builds up as weeks pass \u2014 check back after a few weeks to see the trend."));
+                        let bars = [];
+                        if (financeChartMode === "weekly") {
+                            const recent = history.slice(-16);
+                            bars = recent.slice(1).map((h, i) => ({ label: `W${h.week}`, delta: h.budget - recent[i].budget }));
+                        }
+                        else {
+                            const bySeasonEnd = {};
+                            history.forEach((h) => { bySeasonEnd[h.season] = h; });
+                            const seasons = Object.keys(bySeasonEnd).map(Number).sort((a, b) => a - b);
+                            bars = seasons.slice(1).map((s, i) => {
+                                const prevSeasonEntries = history.filter((h) => h.season === seasons[i]);
+                                const startOfSeason = prevSeasonEntries[0]?.budget ?? 0;
+                                const endOfSeason = bySeasonEnd[s].budget;
+                                return { label: `S${s}`, delta: endOfSeason - startOfSeason };
+                            });
+                        }
+                        const maxAbs = Math.max(1, ...bars.map((b) => Math.abs(b.delta)));
+                        return (React.createElement("div", { className: "mt-3 pt-3 border-t", style: { borderColor: C.cardAlt } },
+                            React.createElement("div", { className: "flex items-center justify-between mb-2" },
+                                React.createElement("div", { className: "text-[9px] tracking-wide font-bold", style: { color: C.sub } }, financeChartMode === "weekly" ? "WEEKLY CHANGE" : "NET CHANGE PER SEASON"),
+                                React.createElement("div", { className: "flex gap-1.5" },
+                                    React.createElement(Pill, { active: financeChartMode === "weekly", onClick: () => setFinanceChartMode("weekly") }, "Weekly"),
+                                    React.createElement(Pill, { active: financeChartMode === "season", onClick: () => setFinanceChartMode("season") }, "By Season"))),
+                            bars.length === 0 ? React.createElement("div", { className: "text-[10px] italic", style: { color: C.sub } }, "Not enough history yet for this view.") : (React.createElement("div", { className: "flex items-end gap-1", style: { height: 90 } }, bars.map((b, i) => (React.createElement("div", { key: i, className: "flex-1 flex flex-col items-center justify-end h-full", title: `${b.label}: ${b.delta >= 0 ? "+" : ""}${formatMoney(b.delta)}` },
+                                React.createElement("div", { style: { width: "100%", height: `${Math.max(3, (Math.abs(b.delta) / maxAbs) * 70)}px`, backgroundColor: b.delta >= 0 ? C.green : C.red, borderRadius: 2 } }),
+                                React.createElement("div", { className: "text-[7px] mt-1 truncate w-full text-center", style: { color: C.sub } }, b.label))))))));
+                    })(),
                     activeClub.budget < 0 && (React.createElement("div", { className: "text-[10px] mt-2", style: { color: C.red } },
                         "\u26A0\uFE0F You're in the red \u2014 board confidence is draining fast on top of the usual pressures. Stay here ",
                         4 - (activeClub.weeksInDebt || 0),
@@ -8425,6 +8903,19 @@ function App() {
                                 React.createElement("span", { className: "text-[9px]", style: { color: C.sub } }, seasonLocked ? `Unlocks in Season ${u.unlockSeason} — prove yourselves first` : tierCapped ? `Facilities can only advance so fast — next tier available Season ${(activeClub.stadiumTier || 0) * 2 + 2}` : u.desc)),
                             React.createElement("span", { className: "text-xs font-bold flex-shrink-0 ml-2", style: { color: C.green } }, locked ? (seasonLocked ? `Season ${u.unlockSeason}` : "Capped") : formatMoney(cost))));
                     }))),
+                React.createElement("div", { className: "space-y-1 mb-4" },
+                    [...playersOfClub(activeClubId)].sort((a, b) => b.merchSales - a.merchSales).slice(0, 5).map((p) => (React.createElement("div", { key: p.id, className: "flex items-center justify-between text-xs rounded-lg px-3 py-1.5 border", style: { backgroundColor: C.card, borderColor: C.border } },
+                        React.createElement("span", { className: "font-semibold" }, p.name),
+                        React.createElement("span", { style: { color: C.sub } },
+                            formatMoney(p.merchSales),
+                            " lifetime")))),
+                    React.createElement("div", { className: "text-[10px] mt-1", style: { color: C.sub } },
+                        "Lifetime merch earned by the club: ",
+                        formatMoney(activeClub.merchTotalEarned || 0),
+                        ". Popularity rises with wins and goals, and drives both merch and sponsorship income.")))),
+            tab === "academy" && activeClub && world && (React.createElement("div", null,
+                React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "YOUTH ACADEMY"),
+                React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "A genuinely different way to build a squad \u2014 instead of buying a finished player, you're betting on one who doesn't exist yet."),
                 React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "YOUTH ACADEMY"),
                 React.createElement("div", { className: "rounded-lg p-3 border mb-4", style: { backgroundColor: C.card, borderColor: C.border } },
                     React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "A genuinely different way to build a squad \u2014 instead of buying a finished player, you're betting on one who doesn't exist yet. Each tier raises the odds of producing a raw, high-potential graduate straight onto your books at the next season's start \u2014 nobody else ever sees them on the open market."),
@@ -8452,17 +8943,29 @@ function App() {
                                     locked && " 🔒"),
                                 React.createElement("span", { className: "text-[9px]", style: { color: C.sub } }, seasonLocked ? `Unlocks in Season ${ACADEMY_UNLOCK_SEASON}` : maxed ? "Already at maximum tier" : "Raises graduate odds and quality ceiling")),
                             React.createElement("span", { className: "text-xs font-bold flex-shrink-0 ml-2", style: { color: C.green } }, locked ? (seasonLocked ? `Season ${ACADEMY_UNLOCK_SEASON}` : "Maxed") : formatMoney(cost))));
-                    })()),
-                React.createElement("div", { className: "space-y-1 mb-4" },
-                    [...playersOfClub(activeClubId)].sort((a, b) => b.merchSales - a.merchSales).slice(0, 5).map((p) => (React.createElement("div", { key: p.id, className: "flex items-center justify-between text-xs rounded-lg px-3 py-1.5 border", style: { backgroundColor: C.card, borderColor: C.border } },
-                        React.createElement("span", { className: "font-semibold" }, p.name),
-                        React.createElement("span", { style: { color: C.sub } },
-                            formatMoney(p.merchSales),
-                            " lifetime")))),
-                    React.createElement("div", { className: "text-[10px] mt-1", style: { color: C.sub } },
-                        "Lifetime merch earned by the club: ",
-                        formatMoney(activeClub.merchTotalEarned || 0),
-                        ". Popularity rises with wins and goals, and drives both merch and sponsorship income.")))),
+                    })()))),
+            tab === "kit" && activeClub && world && (React.createElement("div", null,
+                React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "KIT COLOURS"),
+                React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Real default colours for every known club \u2014 pick your own home and away kit, including pattern, right here."),
+                ["home", "away"].map((kitType) => {
+                    const kit = kitFor(activeClub, kitType === "home");
+                    const palette = ["#FFFFFF", "#000000", "#EF0107", "#034694", "#6CABDD", "#018749", "#FBE122", "#FEBE10", "#670E36", "#F18A00", "#5B2D8C", "#4A4A4A"];
+                    return (React.createElement("div", { key: kitType, className: "rounded-lg p-3 mb-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
+                        React.createElement("div", { className: "flex items-center justify-between mb-1.5" },
+                            React.createElement("div", { className: "text-[10px] font-bold tracking-wide", style: { color: C.green } },
+                                kitType.toUpperCase(),
+                                " KIT"),
+                            activeClub[kitType === "home" ? "homeKit" : "awayKit"] && React.createElement("button", { onClick: () => resetKit(activeClubId, kitType), className: "text-[8px] font-bold", style: { color: C.sub } }, "Reset to default")),
+                        React.createElement("div", { className: "flex items-start gap-3 mb-2" },
+                            React.createElement("div", { className: "rounded flex-shrink-0", style: { width: 44, height: 44, background: kitBackground(kit), border: `4px solid ${kit.secondary}` } }),
+                            React.createElement("div", { className: "flex-1" },
+                                React.createElement("div", { className: "text-[8px] mb-1", style: { color: C.sub } }, "Primary"),
+                                React.createElement("div", { className: "flex flex-wrap gap-1 mb-1.5" }, palette.map((c) => React.createElement("button", { key: c, onClick: () => setKitColor(activeClubId, kitType, "primary", c), className: "rounded-full flex-shrink-0", style: { width: 16, height: 16, backgroundColor: c, border: kit.primary === c ? `2px solid ${C.amber}` : "1px solid rgba(0,0,0,0.15)" } }))),
+                                React.createElement("div", { className: "text-[8px] mb-1", style: { color: C.sub } }, "Secondary"),
+                                React.createElement("div", { className: "flex flex-wrap gap-1" }, palette.map((c) => React.createElement("button", { key: c, onClick: () => setKitColor(activeClubId, kitType, "secondary", c), className: "rounded-full flex-shrink-0", style: { width: 16, height: 16, backgroundColor: c, border: kit.secondary === c ? `2px solid ${C.amber}` : "1px solid rgba(0,0,0,0.15)" } }))))),
+                        React.createElement("div", { className: "text-[8px] mb-1", style: { color: C.sub } }, "Pattern"),
+                        React.createElement("div", { className: "flex flex-wrap gap-1.5" }, Object.entries(KIT_PATTERNS).map(([key, info]) => React.createElement(Pill, { key: key, active: (kit.pattern || "solid") === key, onClick: () => setKitColor(activeClubId, kitType, "pattern", key) }, info.label)))));
+                }))),
             tab === "sponsorship" && activeClub && world && (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "SPONSORSHIP & MARKETING"),
                 React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Everything that grows your income and your following, in one place."),
@@ -8626,6 +9129,7 @@ function App() {
                                         p.age,
                                         " \u00B7 ",
                                         p.clubId ? clubsById[p.clubId]?.name : "Free Agent"),
+                                    React.createElement("span", { className: "block text-[9px]", style: { color: "#6B5B95" } }, (() => { const r = scoutedPotentialRange(p, hiredScout.skill); return r.low === r.high ? `Potential: ${r.low} (fully assessed)` : `Potential: ${r.low}-${r.high}`; })()),
                                     React.createElement(BreakoutBadge, { player: p })),
                                 React.createElement("span", { style: { color: C.sub } }, "\u203A")));
                         }),
@@ -8791,8 +9295,8 @@ function App() {
                         season,
                         "\u00B7W",
                         week)),
-                React.createElement(TabButton, { active: ["clubhub", "squad", "club", "staff", "finance", "sponsorship"].includes(tab), onClick: () => setTab("clubhub"), icon: "\uD83D\uDEE1\uFE0F", label: "Club" }),
-                React.createElement(TabButton, { active: ["managerhub", "jobinfo", "fixtures", "scouting", "leaderboard", "achievements", "messages", "guide"].includes(tab), onClick: () => setTab("managerhub"), icon: "\uD83D\uDC54", label: "Manager" }),
+                React.createElement(TabButton, { active: ["clubhub", "squad", "staff", "finance", "academy", "sponsorship", "kit"].includes(tab), onClick: () => setTab("clubhub"), icon: "\uD83D\uDEE1\uFE0F", label: "Club" }),
+                React.createElement(TabButton, { active: ["managerhub", "jobinfo", "boardobjectives", "training", "savepage", "fixtures", "scouting", "leaderboard", "achievements", "messages", "guide"].includes(tab), onClick: () => setTab("managerhub"), icon: "\uD83D\uDC54", label: "Manager" }),
                 React.createElement(TabButton, { active: ["worldhub", "table", "cup", "market", "clubs", "results", "playerstats", "fanpopularity", "news", "history"].includes(tab), onClick: () => setTab("worldhub"), icon: "\uD83C\uDF0D", label: "World" }),
                 React.createElement(TabButton, { active: tab === "play", onClick: () => setTab("play"), icon: "\u26BD", label: "Play" }),
                 (() => {
@@ -9054,16 +9558,18 @@ function App() {
         })()));
 }
 class ErrorBoundary extends React.Component {
-    constructor(props) { super(props); this.state = { error: null }; }
+    constructor(props) { super(props); this.state = { error: null, info: null }; }
     static getDerivedStateFromError(error) { return { error }; }
-    componentDidCatch(error, info) { console.error("Booked! crashed:", error, info); }
+    componentDidCatch(error, info) { console.error("Booked! crashed:", error, info); this.setState({ info }); }
     render() {
         if (this.state.error) {
             return (React.createElement("div", { style: { minHeight: "100vh", backgroundColor: "#0A0A0A", color: "#FFFFFF", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: "sans-serif", textAlign: "center" } },
                 React.createElement("div", { style: { fontSize: 40, marginBottom: 12 } }, "\u26A0\uFE0F"),
                 React.createElement("div", { style: { fontSize: 16, fontWeight: "bold", marginBottom: 8 } }, "Something went wrong"),
                 React.createElement("div", { style: { fontSize: 12, color: "#999", marginBottom: 20, maxWidth: 320 } }, "Your progress up to your last save should be safe. Reloading will take you back to the home screen \u2014 from there, Load Career picks up right where your last autosave left off."),
-                React.createElement("div", { style: { fontSize: 10, color: "#666", marginBottom: 20, maxWidth: 320, wordBreak: "break-word" } }, String(this.state.error?.message || this.state.error)),
+                React.createElement("div", { style: { fontSize: 10, color: "#666", marginBottom: 8, maxWidth: 400, wordBreak: "break-word" } }, String(this.state.error?.message || this.state.error)),
+                this.state.error?.stack && React.createElement("div", { style: { fontSize: 9, color: "#555", marginBottom: 8, maxWidth: 400, wordBreak: "break-word", textAlign: "left", fontFamily: "monospace" } }, String(this.state.error.stack).split("\n").slice(0, 4).join("\n")),
+                this.state.info?.componentStack && React.createElement("div", { style: { fontSize: 9, color: "#555", marginBottom: 20, maxWidth: 400, wordBreak: "break-word", textAlign: "left", fontFamily: "monospace" } }, String(this.state.info.componentStack).split("\n").slice(0, 5).join("\n")),
                 React.createElement("button", { onClick: () => window.location.reload(), style: { backgroundColor: "#3F8F5F", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "12px 24px", fontWeight: "bold", fontSize: 14 } }, "Reload")));
         }
         return this.props.children;
