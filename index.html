@@ -3188,6 +3188,7 @@ function App() {
     const [contractOfferDraft, setContractOfferDraft] = useState(null);
     const [penaltyTakerPicks, setPenaltyTakerPicks] = useState({ home: [], away: [] });
     const [findPlayerSearch, setFindPlayerSearch] = useState("");
+    const [autosaveFailed, setAutosaveFailed] = useState(false);
     const [findManagerSearch, setFindManagerSearch] = useState("");
     const [defaultMatchSpeed, setDefaultMatchSpeed] = useState(1);
     const [reducePitchMotion, setReducePitchMotion] = useState(false);
@@ -6381,9 +6382,9 @@ function App() {
         return names.length > 1 ? `${names.join(" & ")} (2-player)` : names[0];
     }
     function saveToSlot(slotId) {
-        try {
-            const payload = buildSavePayload();
-            localStorage.setItem(`booked-pse-save-${slotId}`, JSON.stringify(payload));
+        const payload = buildSavePayload();
+        function attemptSave(data) {
+            localStorage.setItem(`booked-pse-save-${slotId}`, JSON.stringify(data));
             const idx = loadSlotsIndex();
             const meta = {
                 id: slotId, label: slotLabelFor(),
@@ -6398,10 +6399,30 @@ function App() {
                 idx.push(meta);
             writeSlotsIndex(idx);
             setSaveSlots(idx);
+        }
+        try {
+            attemptSave(payload);
             return true;
         }
         catch (e) {
-            return false;
+            // A save this large is almost always an old save's accumulated history (match
+            // results, weekly budget snapshots, news) rather than anything actually wrong — so
+            // before giving up, retry once with that history trimmed back to something much
+            // smaller. Recent play and every player/club stays fully intact either way; this
+            // only shortens how far back the older historical lists reach.
+            try {
+                const trimmed = {
+                    ...payload,
+                    matchHistory: (payload.matchHistory || []).slice(0, 400),
+                    news: (payload.news || []).slice(0, 40),
+                    world: payload.world ? { ...payload.world, clubs: (payload.world.clubs || []).map((c) => ({ ...c, budgetHistory: (c.budgetHistory || []).slice(-16) })) } : payload.world,
+                };
+                attemptSave(trimmed);
+                return true;
+            }
+            catch (e2) {
+                return false;
+            }
         }
     }
     function saveGame() {
@@ -6411,7 +6432,10 @@ function App() {
             slotId = uid("slot");
             setCurrentSlotId(slotId);
         }
-        setSaveMsg(saveToSlot(slotId) ? "Saved!" : "Save failed — storage may be full.");
+        const ok = saveToSlot(slotId);
+        if (ok)
+            setAutosaveFailed(false);
+        setSaveMsg(ok ? "Saved!" : "Save failed — storage may be full.");
         setTimeout(() => setSaveMsg(""), 2500);
     }
     function saveAsNewSlot() {
@@ -6589,7 +6613,8 @@ function App() {
         const slotId = currentSlotId || uid("slot");
         if (!currentSlotId)
             setCurrentSlotId(slotId);
-        saveToSlot(slotId);
+        const ok = saveToSlot(slotId);
+        setAutosaveFailed(!ok);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [matchHistory.length, week, season]);
     // Achievement checks + board sackings — runs after state has actually committed
@@ -7755,7 +7780,8 @@ function App() {
                         atHome ? "vs" : "at",
                         " ",
                         clubsById[oppId]?.name)));
-            })()),
+            })(),
+            autosaveFailed && (React.createElement("div", { className: "w-full rounded-lg px-3 py-2 text-xs font-bold mt-2 border", style: { backgroundColor: "rgba(200,60,60,0.1)", borderColor: C.red, color: C.red } }, "\u26A0\uFE0F Autosave failed \u2014 your browser's storage is likely full. Go to Manager \u2192 Save & Load and try Save now, or free up space by deleting an old save you no longer need from Load Game."))),
         React.createElement("div", { className: "max-w-4xl lg:max-w-6xl mx-auto px-3 sm:px-6 pb-24 pt-2" },
             tab === "play" && !activeClub && world && (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, "CURRENTLY UNEMPLOYED"),
