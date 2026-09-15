@@ -1224,7 +1224,7 @@ const ACHIEVEMENTS = [
     { id: "unbeaten-15", name: "Untouchable", desc: "Go 15 matches unbeaten", icon: "🔥" },
     { id: "squad-25", name: "Full House", desc: "Carry a squad of 25 or more players", icon: "👥" },
     { id: "all-formations", name: "Tactical Mastermind", desc: "Use every available formation at least once", icon: "🧩" },
-    { id: "elite-xi", name: "Star-Studded", desc: "Improve your Starting XI to at least 80 overall and 5+ above where you started", icon: "🧩" },
+    { id: "elite-xi", name: "Star-Studded", desc: "Improve your lineup to at least 80 overall and 5+ above where you started", icon: "🧩" },
     { id: "free-agents-10", name: "Bargain Hunter", desc: "Sign 10 free agents", icon: "➕" },
     { id: "marquee-signing", name: "Marquee Signing", desc: "Have a player rated 85+ overall and above your strongest starting player", icon: "➕" },
     { id: "rename-player", name: "Creative Licence", desc: "Rename a player", icon: "✎" },
@@ -3319,6 +3319,8 @@ function App() {
     const [autosaveFailed, setAutosaveFailed] = useState(false);
     const [loanRequestMsg, setLoanRequestMsg] = useState("");
     const [loanApproachSearch, setLoanApproachSearch] = useState("");
+    const [friendlySearch, setFriendlySearch] = useState("");
+    const [showFriendlyPicker, setShowFriendlyPicker] = useState(false);
     const [findManagerSearch, setFindManagerSearch] = useState("");
     const [defaultMatchSpeed, setDefaultMatchSpeed] = useState(1);
     const [reducePitchMotion, setReducePitchMotion] = useState(false);
@@ -3704,7 +3706,7 @@ function App() {
         });
         return issues;
     }
-    function openMatch(fixtureOrTie, isCup) {
+    function openMatch(fixtureOrTie, isCup, isFriendly) {
         // Refuse to start a match for either side if a controlled club hasn't chosen a formation
         // yet, or has a formation but hasn't actually filled every slot — otherwise xiFromLineup's
         // fallback (there for AI clubs, which never manually pick a lineup at all) would silently
@@ -3729,7 +3731,7 @@ function App() {
             setMatchViewTab("action");
             // simulate every other match happening this week right now, so the table/results are
             // already current while you're watching yours rather than waiting until you advance the week
-            const afterLeague = simulateOtherLeagueFixtures(world.clubs, world.players, isCup ? undefined : fixtureOrTie.id);
+            const afterLeague = simulateOtherLeagueFixtures(world.clubs, world.players, (isCup || isFriendly) ? undefined : fixtureOrTie.id);
             const afterCup = simulateOtherCupTies(afterLeague.clubs, afterLeague.players);
             setWorld((w) => ({ ...w, clubs: afterCup.clubs, players: afterCup.players }));
             const home = clubsById[fixtureOrTie.homeId];
@@ -3741,7 +3743,7 @@ function App() {
             const stamina = {};
             [...homeXI, ...awayXI].forEach((p) => { stamina[p.id] = 100; });
             setActiveMatch({
-                id: fixtureOrTie.id, isCup: !!isCup, cupKey: isCup ? (fixtureOrTie.cupKey || null) : null, isPlayoff: !!fixtureOrTie.isPlayoffTie, promoClubId: fixtureOrTie.promoClubId || null, surviveClubId: fixtureOrTie.surviveClubId || null, homeId: fixtureOrTie.homeId, awayId: fixtureOrTie.awayId,
+                id: fixtureOrTie.id, isCup: !!isCup, isFriendly: !!isFriendly, cupKey: isCup ? (fixtureOrTie.cupKey || null) : null, isPlayoff: !!fixtureOrTie.isPlayoffTie, promoClubId: fixtureOrTie.promoClubId || null, surviveClubId: fixtureOrTie.surviveClubId || null, homeId: fixtureOrTie.homeId, awayId: fixtureOrTie.awayId,
                 homeXI, awayXI, homeBench: benchFor(homePlayers, homeXI, home.subPriority), awayBench: benchFor(awayPlayers, awayXI, away.subPriority),
                 homeAppeared: [...homeXI], awayAppeared: [...awayXI], cardPenalties: [], matchCards: {}, running: false,
                 minute: 0, events: [], injuries: [], subsLeftHome: 5, subsLeftAway: 5, atHalftime: false,
@@ -3762,6 +3764,14 @@ function App() {
             // what actually gets it in front of the error boundary, with full detail this time.
             setFatalError(err);
         }
+    }
+    function openFriendly(opponentClubId) {
+        // A genuine consequence-free match — for testing a formation or tactic before it counts,
+        // or simply getting a fringe player minutes without it touching their real season record.
+        // Reuses the exact same live match engine as every competitive fixture, just tagged so
+        // finalizeMatch knows to skip league position, cup progress, and gate receipts entirely.
+        const synthetic = { id: uid("friendly"), homeId: activeClubId, awayId: opponentClubId };
+        openMatch(synthetic, false, true);
     }
     function applyInjuries(m, injuredPlayers, side) {
         let xi = side === "home" ? [...m.homeXI] : [...m.awayXI];
@@ -4377,6 +4387,15 @@ function App() {
             setNews((n) => [{ id: uid("n"), text: newsText, clubIds: [m.homeId, m.awayId], week, season }, ...n].slice(0, 150));
             setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === m.homeId ? { ...applyPopularityOnly(c, hg, ag, areRivals(m.homeId, m.awayId)), budget: c.budget + homeIncome.amount, lastAttendance: homeIncome.attendance, lastTicketPrice: homeIncome.price } : c.id === m.awayId ? { ...applyPopularityOnly(c, ag, hg, areRivals(m.homeId, m.awayId)), budget: c.budget + awayIncome.amount } : c)) }));
         }
+        else if (m.isFriendly) {
+            // Deliberately almost nothing persists — no league table, no cup progress, no gate
+            // money, no popularity swing either way. The one genuine benefit: anyone who played
+            // gets credited with game time, which is the entire point of arranging one — a
+            // fringe player who needs minutes actually gets them, without any of it touching
+            // their real season record. No news story either; a friendly isn't a real story.
+            const appearedIds = new Set([...(m.homeAppeared || []), ...(m.awayAppeared || [])].map((p) => p.id));
+            setWorld((w) => ({ ...w, players: w.players.map((p) => (appearedIds.has(p.id) ? { ...p, lastPlayedWeek: week } : p)) }));
+        }
         else {
             setFixtures((prev) => prev.map((f) => (f.id === m.id ? { ...f, played: true, homeGoals: hg, awayGoals: ag, events: goalEvents } : f)));
             setWorld((w) => ({
@@ -4857,6 +4876,23 @@ function App() {
             const topScorerP = [...w.players].filter((p) => p.clubId).sort((a, b) => (b.seasonGoals || 0) - (a.seasonGoals || 0))[0];
             const topAssistP = [...w.players].filter((p) => p.clubId).sort((a, b) => (b.seasonAssists || 0) - (a.seasonAssists || 0))[0];
             const topSavesP = [...w.players].filter((p) => p.clubId && p.position === "GK").sort((a, b) => (b.seasonSaves || 0) - (a.seasonSaves || 0))[0];
+            // Team of the Season — a genuine best lineup, not just the individual honours above.
+            // Season-scoped rating data doesn't actually exist (career average only), so this
+            // scores players on what genuinely is tracked per season: apps as a real "played
+            // enough to count" bar, then goals and assists weighted more heavily for attacking
+            // positions, current ability as the underlying quality baseline throughout.
+            const seasonEligible = w.players.filter((p) => p.clubId && (p.seasonApps || 0) >= 10);
+            const scoreFor = (p) => {
+                if (p.position === "GK")
+                    return p.overall + (p.seasonSaves || 0) * 0.4 - (p.seasonGoalsConceded || 0) * 0.3;
+                if (p.position === "DF")
+                    return p.overall + (p.seasonGoals || 0) * 1.5 + (p.seasonAssists || 0) * 0.8;
+                if (p.position === "MF")
+                    return p.overall + (p.seasonGoals || 0) * 2 + (p.seasonAssists || 0) * 1.5;
+                return p.overall + (p.seasonGoals || 0) * 2.5 + (p.seasonAssists || 0) * 1.2;
+            };
+            const pickTop = (pos, count) => seasonEligible.filter((p) => p.position === pos).sort((a, b) => scoreFor(b) - scoreFor(a)).slice(0, count).map((p) => ({ id: p.id, name: p.name, position: p.position, clubId: p.clubId }));
+            const lineupOfSeason = [...pickTop("GK", 1), ...pickTop("DF", 4), ...pickTop("MF", 4), ...pickTop("FW", 2)];
             let bestWinRatioClub = null, bestWinRatio = -1;
             let bestManagerClub = null, bestManagerPpg = -1;
             DIVISIONS_SEED.forEach((div) => {
@@ -4884,6 +4920,7 @@ function App() {
                 topSaves: topSavesP && (topSavesP.seasonSaves || 0) > 0 ? { id: topSavesP.id, name: topSavesP.name, clubId: topSavesP.clubId, value: topSavesP.seasonSaves } : null,
                 bestWinRatio: bestWinRatioClub ? { clubId: bestWinRatioClub.id, ratio: bestWinRatio, won: bestWinRatioClub.won, played: bestWinRatioClub.played } : null,
                 bestManager: bestManagerClub ? { clubId: bestManagerClub.id, name: bestManagerName, ppg: bestManagerPpg } : null,
+                lineupOfSeason: lineupOfSeason.length >= 6 ? lineupOfSeason : null,
                 playoffResults: playoffTies.filter((t) => t.played),
             };
             const boardNews = [];
@@ -5106,6 +5143,7 @@ function App() {
             const loanReturnNews = [];
             const trainingFeedback = [];
             const breakthroughNews = [];
+            const retirementNews = [];
             const developedPlayers = w.players.map((p) => {
                 // snapshot this season's stats into the player's history log before resetting them,
                 // so their profile can show a season-by-season breakdown later
@@ -5137,11 +5175,27 @@ function App() {
                 else if (p.clubId && dev.developmentNote === "stalled" && p.age <= 23) {
                     breakthroughNews.push({ text: `Development has stalled for ${p.name} (${p.age}) at ${clubsById[p.clubId]?.name} — little progress despite regular training this season.`, clubIds: [p.clubId] });
                 }
-                const repBumped = (motmLeader && p.id === motmLeader.id) ? { ...dev, reputationBonus: (dev.reputationBonus || 0) + 8 } : dev;
+                // Age-based retirement — until now a player only ever left the game through a
+                // career-ending injury, meaning someone who stayed lucky could theoretically play
+                // forever. A real, escalating chance from the mid-30s (certain at 40) gives every
+                // long career a genuine, announced ending, with real weight for someone who
+                // actually made appearances or won something along the way.
+                let devOrRetired = dev;
+                if (!p.retired && dev.clubId) {
+                    const retireChance = dev.age >= 40 ? 1 : dev.age >= 37 ? 0.3 + (dev.age - 37) * 0.18 : dev.age >= 34 ? (dev.age - 33) * 0.05 : 0;
+                    if (retireChance > 0 && Math.random() < retireChance) {
+                        const totalApps = (dev.seasonHistoryLog || []).reduce((s, r) => s + (r.apps || 0), 0) + (dev.seasonApps || 0);
+                        const wonSomething = (dev.playerOfSeasonCount || 0) > 0 || clubsById[dev.clubId]?.leagueTitles?.some((t) => t.season === season);
+                        const clubName = clubsById[dev.clubId]?.name || "their club";
+                        retirementNews.push({ text: totalApps >= 100 ? `👋 ${dev.name} (${dev.age}) has announced his retirement after ${totalApps} appearances for ${clubName}${wonSomething ? " — a genuine club legend calling it a day" : ""}.` : `👋 ${dev.name} (${dev.age}) has retired from playing.`, clubIds: [dev.clubId] });
+                        devOrRetired = { ...dev, clubId: null, retired: true, retiredAge: dev.age, contractWeeks: null, transferListed: false, loanListed: false, releaseRequested: false };
+                    }
+                }
+                const repBumped = (motmLeader && p.id === devOrRetired.id) ? { ...devOrRetired, reputationBonus: (devOrRetired.reputationBonus || 0) + 8 } : devOrRetired;
                 const withPlayerOfSeason = (motmLeader && p.id === motmLeader.id) ? { ...repBumped, playerOfSeasonCount: (repBumped.playerOfSeasonCount || 0) + 1 } : repBumped;
                 // Loan spells end automatically at the season boundary they were due back — no need to
                 // manage the calendar yourself, they just reappear at their parent club next season.
-                if (p.loanParentClubId && p.loanReturnSeason && p.loanReturnSeason <= season + 1) {
+                if (!withPlayerOfSeason.retired && p.loanParentClubId && p.loanReturnSeason && p.loanReturnSeason <= season + 1) {
                     loanReturnNews.push(`${withPlayerOfSeason.name} returns to ${clubsById[p.loanParentClubId]?.name} after their loan spell.`);
                     return { ...withPlayerOfSeason, clubId: p.loanParentClubId, loanParentClubId: null, loanReturnSeason: null };
                 }
@@ -5174,6 +5228,9 @@ function App() {
             }
             if (breakthroughNews.length) {
                 setNews((n) => [...breakthroughNews.map((r) => ({ id: uid("n"), text: r.text, clubIds: r.clubIds, week: newWeek, season })), ...n].slice(0, 150));
+            }
+            if (retirementNews.length) {
+                setNews((n) => [...retirementNews.map((r) => ({ id: uid("n"), text: r.text, clubIds: r.clubIds, week: newWeek, season })), ...n].slice(0, 150));
             }
             if (trainingFeedback.length) {
                 setBoardFanMessages((msgs) => [...trainingFeedback, ...msgs].slice(0, 200));
@@ -7124,8 +7181,8 @@ function App() {
                     React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "\uD83D\uDCD6 HOW TO PLAY"),
                     React.createElement("div", { className: "text-xs", style: { color: guideSub } }, "A full walkthrough of every part of BOOKED! Pitch Side Empire.")),
                 React.createElement(GuideSection, { title: "Getting Started", sub: guideSub, dark: dark, defaultOpen: true }, "Pick one club to manage, or two if you and someone else want to run rival clubs in the same world (take turns via the \u21C4 switcher, top right) \u2014 enter a name for each manager on the setup screen. Real clubs throughout; the best-known real footballers fill the top squads first, everyone else gets a fictional name you can always rename. There are five divisions, right down to Sunday League \u2014 start anywhere, including the bottom, and work your way up. You can also start unemployed and spectate the league before taking a job \u2014 see \"Between Jobs\" below."),
-                React.createElement(GuideSection, { title: "Playing a Match", sub: guideSub, dark: dark, defaultOpen: false }, "The Play tab (\u26BD) is home base: a hero card shows your next fixture with a VS build-up, your latest club news, formation/tactics, your Starting XI on the pitch, and a scouting report on your next opponent. Hit PLAY MATCH to head into the live matchday screen. It's a real-time clock \u2014 KICK OFF starts it running, playing out 90 minutes over about two real minutes, with a possession bar, a moving ball tracker, and a full team stats comparison (shots, shots on target, saves, cards) updating live. The Action tab shows real, generated commentary as it happens, not just a running score. The Pitch tab shows both teams' actual formations spread across the pitch in their real kit colours, players drifting believably around their positions with a small pull toward wherever the ball is. Chances themselves are genuinely earned now \u2014 your forwards' shooting against their actual back line, your midfield against theirs, not a single blended team-strength number, so a real mismatch (a lethal striker against a shaky defence) creates real, visible danger. Pause any time to make substitutions or change formation/tactics \u2014 subs and tactics are locked while the clock is running, so pause first. At half-time you get a genuine choice of team talk \u2014 Calm & Measured, Rousing, or Demanding \u2014 each a real gamble with no guaranteed outcome, and once per half you can also fire off a Manager Shout-Out live during play, deliberately uncertain whether it lands. A goal popup announces every goal as it happens, and Man of the Match is shown the moment the final whistle goes. A cup or playoff match level after 90 minutes goes to penalties \u2014 if your club's involved, you get to choose your five takers and their order yourself rather than it being decided for you."),
-                React.createElement(GuideSection, { title: "Tactics", sub: guideSub, dark: dark, defaultOpen: false }, "Beyond formation (which decides your XI's shape), Tempo (Defensive/Balanced/Attacking) and Pressing (Low/Medium/High) are real levers: attacking tempo trades defensive solidity for goal threat; high pressing tires the opposition faster \u2014 and your own players too \u2014 and draws more bookings. All three can be changed before kick-off on the Play tab, or live mid-match while paused. On the Squad pitch editor, tapping any outfield slot also lets you set a role for that position \u2014 a forward can play Central, Drift Wide, or Drop Deep; a midfielder can sit Balanced, Get Forward, or Hold Position; a defender can stay Balanced or Overlap \u2014 each a genuine trade-off between the two stats it affects, shown as a small arrow on their pitch icon. You can also designate Penalty, Free Kick, and Corner takers from your squad (also on the Tactics section) \u2014 a genuinely good, well-suited taker gives your side a small real edge whenever they're on the pitch. Separately from in-match stamina (which resets every game), each player also carries match fatigue across the season: start them game after game with no rest and it climbs, quietly costing them effective quality until it saturates \u2014 a genuine reason to rotate your squad rather than always picking your strongest XI. Rest a tired player for a week or two and it drains back down."),
+                React.createElement(GuideSection, { title: "Playing a Match", sub: guideSub, dark: dark, defaultOpen: false }, "The Play tab (\u26BD) is home base: a hero card shows your next fixture with a VS build-up, your latest club news, formation/tactics, your lineup on the pitch, and a scouting report on your next opponent. Hit PLAY MATCH to head into the live matchday screen. It's a real-time clock \u2014 KICK OFF starts it running, playing out 90 minutes over about two real minutes, with a possession bar, a moving ball tracker, and a full team stats comparison (shots, shots on target, saves, cards) updating live. The Action tab shows real, generated commentary as it happens, not just a running score. The Pitch tab shows both teams' actual formations spread across the pitch in their real kit colours, players drifting believably around their positions with a small pull toward wherever the ball is. Chances themselves are genuinely earned now \u2014 your forwards' shooting against their actual back line, your midfield against theirs, not a single blended team-strength number, so a real mismatch (a lethal striker against a shaky defence) creates real, visible danger. Pause any time to make substitutions or change formation/tactics \u2014 subs and tactics are locked while the clock is running, so pause first. At half-time you get a genuine choice of team talk \u2014 Calm & Measured, Rousing, or Demanding \u2014 each a real gamble with no guaranteed outcome, and once per half you can also fire off a Manager Shout-Out live during play, deliberately uncertain whether it lands. A goal popup announces every goal as it happens, and Man of the Match is shown the moment the final whistle goes. A cup or playoff match level after 90 minutes goes to penalties \u2014 if your club's involved, you get to choose your five takers and their order yourself rather than it being decided for you."),
+                React.createElement(GuideSection, { title: "Tactics", sub: guideSub, dark: dark, defaultOpen: false }, "Beyond formation (which decides your lineup's shape), Tempo (Defensive/Balanced/Attacking) and Pressing (Low/Medium/High) are real levers: attacking tempo trades defensive solidity for goal threat; high pressing tires the opposition faster \u2014 and your own players too \u2014 and draws more bookings. All three can be changed before kick-off on the Play tab, or live mid-match while paused. On the Squad pitch editor, tapping any outfield slot also lets you set a role for that position \u2014 a forward can play Central, Drift Wide, or Drop Deep; a midfielder can sit Balanced, Get Forward, or Hold Position; a defender can stay Balanced or Overlap \u2014 each a genuine trade-off between the two stats it affects, shown as a small arrow on their pitch icon. You can also designate Penalty, Free Kick, and Corner takers from your squad (also on the Tactics section) \u2014 a genuinely good, well-suited taker gives your side a small real edge whenever they're on the pitch. Separately from in-match stamina (which resets every game), each player also carries match fatigue across the season: start them game after game with no rest and it climbs, quietly costing them effective quality until it saturates \u2014 a genuine reason to rotate your squad rather than always picking your strongest lineup. Rest a tired player for a week or two and it drains back down."),
                 React.createElement(GuideSection, { title: "Your Squad", sub: guideSub, dark: dark, defaultOpen: false }, "Tap any player for their full profile \u2014 six core stats, potential (their development ceiling, shown when there's room left to grow), career average rating, MOTM count, shots/saves, wage, contract, and morale. A Contract sub-tab breaks down their actual deal \u2014 bonuses, release clauses, everything. A Compare option lets you put any two players side by side, anywhere in the game, with the better value in each stat highlighted. You can set an Individual Training Focus for any player, overriding the squad-wide plan just for them. An injured player can be sent for accelerated treatment for a fee \u2014 usually cuts recovery time, but carries a real chance of a setback instead. Morale rises with wins and a weekly Pep Talk (once per player per week), and drifts down if a player's left out too long \u2014 rotate your squad, don't just pick the same 11 forever. If morale stays critically low for a few weeks running, a player will formally request a release \u2014 grant it and there's no severance to pay, since they wanted out anyway. Physical affects how fast a player tires mid-match. Injuries and cards (yellow/red, with suspensions for reds and for five yellows in a season) are both rare but real \u2014 and very rarely, an injury is serious enough to end a career outright."),
                 React.createElement(GuideSection, { title: "Signing Players", sub: guideSub, dark: dark, defaultOpen: false }, "Browse free agents, rival clubs' listed players, and the loan market from the Transfer Market. For a rival's full squad \u2014 not just who they've listed \u2014 visit their Club page directly, where you can approach anyone; a listed player is just more likely to say yes. Approaching a rival opens a fee negotiation first \u2014 pick a bid level, and the selling club can genuinely say no, especially for one of their key players or if you're a much smaller club. Once a fee's agreed (or for a free agent, straight away), you move to personal terms: real sliders for weekly wage, signing bonus, goal bonus, and assist bonus, all scaled to what that player's actually worth, with a live readout of how likely they are to accept. They take about a week to actually respond \u2014 if the package isn't quite enough, they can come back with a genuine counter-offer instead of a flat no, which you can accept, reject, or walk away from. A transfer fee is never actually paid until the player agrees personal terms, so a deal falling through there costs you nothing. Rival transfers are only possible during two transfer windows each season (weeks 1-6 and 16-20) \u2014 free agent and loan signings work year-round. Contract renewals for your own players work through this exact same system."),
                 React.createElement(GuideSection, { title: "Player Personality", sub: guideSub, dark: dark, defaultOpen: false }, "Every player has a genuine personality \u2014 Professional, Ambitious, Temperamental, Loyal, or Leader \u2014 shown on their profile, and it's not just flavour text. Professional players train noticeably better. Ambitious ones push for a move much faster if they're unhappy or short of game time, and want a real pay rise to sign a renewal. Temperamental players pick up more cards and swing harder in morale after a win or loss. Loyal players take far more sustained unhappiness before requesting a release, and will renew below market rate to stay somewhere settled. A Leader quietly lifts the morale of the whole squad around them just by being in it. It's fixed for each player, not something you can change."),
@@ -8175,6 +8232,17 @@ function App() {
                             setViewingPlayerId(p.id);
                         }
                     } : null }),
+                awards.lineupOfSeason && (React.createElement("div", { className: "rounded-lg p-4 mb-2.5 border", style: { backgroundColor: "#FFFDF5", borderColor: "#E8D48A" } },
+                    React.createElement("div", { className: "text-[9px] tracking-widest font-bold mb-2", style: { color: "#A9821F" } }, "LINE UP OF THE SEASON"),
+                    React.createElement("div", { className: "space-y-1" }, awards.lineupOfSeason.map((p) => (React.createElement("button", { key: p.id, onClick: () => { const pl = world.players.find((x) => x.id === p.id); if (pl) {
+                            setRoundupSeason(null);
+                            setViewingPlayerId(pl.id);
+                        } }, className: "w-full flex items-center justify-between text-left text-xs px-2 py-1.5 rounded", style: { backgroundColor: "#FBF0C8" } },
+                        React.createElement("span", null,
+                            React.createElement("span", { className: "font-bold", style: { color: "#3A2F0B" } }, p.name),
+                            " ",
+                            React.createElement("span", { style: { color: "#8C7229" } }, p.position)),
+                        React.createElement("span", { style: { color: "#8C7229" } }, clubsById[p.clubId]?.name))))))),
                 React.createElement(AwardCard, { icon: "\uD83D\uDCC8", title: "BEST WIN RATIO", name: awards.bestWinRatio ? clubsById[awards.bestWinRatio.clubId]?.name : null, sub: awards.bestWinRatio ? `${awards.bestWinRatio.won}/${awards.bestWinRatio.played} wins — ${Math.round(awards.bestWinRatio.ratio * 100)}%` : "" }),
                 React.createElement("button", { onClick: () => setRoundupSeason(null), className: "w-full py-3.5 mt-4 rounded-lg font-black tracking-widest text-sm pse-display", style: { backgroundColor: "#D8B968", color: "#3A2A0E" } },
                     "CONTINUE TO SEASON ",
@@ -8289,7 +8357,7 @@ function App() {
                         activeClub.name,
                         " below before your first match. It'll stick until you change it."))) : !lineupIsComplete(activeClub) ? (React.createElement("div", { className: "rounded-lg p-5 mb-3 border text-center", style: { backgroundColor: C.card, borderColor: C.amber } },
                     React.createElement("div", { style: { fontSize: 26 } }, "\uD83D\uDC65"),
-                    React.createElement("div", { className: "text-sm font-bold mt-1" }, "Fill in your starting XI"),
+                    React.createElement("div", { className: "text-sm font-bold mt-1" }, "Fill in your lineup"),
                     React.createElement("div", { className: "text-[11px] mt-1", style: { color: C.sub } }, "Your formation's set, but one or more slots are empty (or the player in them can't play right now). No auto-fill \u2014 head to Squad and assign every position yourself before kick-off."))) : ((() => {
                     const hasFixture = myWeekFixture && !myWeekFixture.played;
                     const upcoming = hasFixture ? myWeekFixture : myPlayoffTie ? myPlayoffTie : (myCupTie || null);
@@ -8326,6 +8394,16 @@ function App() {
                             " this week."),
                         !allControlledDoneThisWeek && React.createElement("div", { className: "text-[10px] text-center", style: { color: C.sub } }, "Your other club still has a match to play this week first.")))));
                 })()),
+                React.createElement("div", { className: "rounded-lg p-4 mb-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
+                    React.createElement("div", { className: "flex items-center justify-between mb-1" },
+                        React.createElement("div", { className: "text-[11px] tracking-widest font-bold", style: { color: C.green } }, "\u26BD ARRANGE A FRIENDLY"),
+                        React.createElement("button", { onClick: () => setShowFriendlyPicker((s) => !s), className: "text-[10px] font-bold", style: { color: C.amber } }, showFriendlyPicker ? "Cancel" : "Pick an opponent")),
+                    React.createElement("div", { className: "text-[10px]", style: { color: C.sub } }, "Test a formation or give a fringe player minutes with zero real consequences \u2014 no league table, no cup progress, no gate money either way."),
+                    showFriendlyPicker && (React.createElement("div", { className: "mt-2" },
+                        React.createElement("input", { value: friendlySearch, onChange: (e) => setFriendlySearch(e.target.value), placeholder: "Search for any club...", className: "w-full border rounded-lg px-2 py-1.5 text-xs mb-2", style: selStyle }),
+                        React.createElement("div", { className: "space-y-1 max-h-48 overflow-y-auto" }, world.clubs.filter((c) => c.id !== activeClubId && c.name.toLowerCase().includes(friendlySearch.toLowerCase())).slice(0, 20).map((c) => (React.createElement("button", { key: c.id, onClick: () => { setShowFriendlyPicker(false); setFriendlySearch(""); openFriendly(c.id); }, className: "w-full flex items-center justify-between text-xs px-2 py-1.5 rounded border text-left", style: { borderColor: C.border } },
+                            React.createElement("span", { className: "font-bold" }, c.name),
+                            React.createElement("span", { style: { color: C.sub } }, DIVISIONS_SEED.find((d) => d.id === c.divisionId)?.name)))))))),
                 React.createElement("div", { className: "rounded-lg p-4 mb-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
                     React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, "FORMATION & TACTICS"),
                     React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.sub } }, activeClub.formation ? "FORMATION (changing this resets your lineup)" : "FORMATION — CHOOSE ONE TO GET STARTED"),
