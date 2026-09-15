@@ -963,6 +963,27 @@ function clubIdentityFor(club) {
     const keys = Object.keys(CLUB_IDENTITIES);
     return keys[seed % keys.length];
 }
+function clubLegacyLabel(club, currentSeason) {
+    // Pure presentation on top of history the club already keeps (leagueTitles, cupTitlesWon,
+    // cupTitlesHistory) — no new tracking needed. Not a formal in-game label the club carries
+    // around, just a way of reading its trophy history back as something with a bit of shape to
+    // it, the way you'd talk about a club's history in real life.
+    const leagueCount = club.leagueTitles?.length || 0;
+    const cupCount = club.cupTitlesWon || 0;
+    const total = leagueCount + cupCount;
+    if (total === 0)
+        return null;
+    const recentLeague = (club.leagueTitles || []).filter((t) => currentSeason - t.season <= 3).length;
+    const recentCups = (club.cupTitlesHistory || []).filter((t) => currentSeason - (t.season ?? -99) <= 3).length;
+    const recentTotal = recentLeague + recentCups;
+    if (recentTotal >= 2)
+        return { label: "A Golden Era", desc: `${total} major honour${total === 1 ? "" : "s"} in the club's history, several of them in just the last few seasons.` };
+    if (total >= 8)
+        return { label: "A Historic Powerhouse", desc: `${total} major honours across the club's history — a genuine giant of the game.` };
+    if (total >= 3)
+        return { label: "A Club With Real Pedigree", desc: `${total} major honours to their name.` };
+    return { label: "Building Something", desc: `${total} major honour${total === 1 ? "" : "s"} so far — the start of a history worth watching.` };
+}
 const PERSONALITY_TYPES = {
     professional: { label: "Professional", icon: "📋", desc: "Trains that bit harder than most — a genuinely improved chance of developing each season." },
     ambitious: { label: "Ambitious", icon: "🔥", desc: "Wants to play at the highest level they can reach. Pushes for a move if the club isn't going anywhere, or if they're not getting game time." },
@@ -1082,10 +1103,34 @@ function developPlayer(p, clubTier, coachSkill) {
     const personalityMult = personalityFor(p) === "professional" ? 1.2 : 1;
     const growthChance = (p.age <= 20 ? 0.65 : p.age <= 23 ? 0.45 : p.age <= 26 ? 0.15 : 0) * potMult * coachMult * personalityMult;
     const declineChance = p.age >= 33 ? 0.6 : p.age >= 30 ? 0.3 : p.age >= 28 ? 0.1 : 0;
+    // A real breakthrough or stalled season — not just smooth, predictable stat creep. A young
+    // player with real headroom to their potential occasionally leaps forward all at once
+    // (more likely with a bigger gap to close and a Professional mentality), while sustained
+    // unhappiness can genuinely stall an otherwise promising season despite normal training.
+    // Deliberately rare either way — this is meant to be a real, memorable moment, not the norm.
+    const headroom = Math.max(0, (p.potential ?? p.overall) - p.overall);
+    let developmentNote = null;
+    let breakthrough = false, stalled = false;
+    if (p.age <= 23 && headroom >= 8 && growthChance > 0) {
+        const breakthroughChance = 0.07 + (headroom >= 20 ? 0.05 : 0) + (personalityFor(p) === "professional" ? 0.03 : 0);
+        if (Math.random() < breakthroughChance)
+            breakthrough = true;
+    }
+    if (!breakthrough && p.age <= 26 && growthChance > 0) {
+        const stallChance = 0.07 + ((p.morale || 60) < 40 ? 0.07 : 0);
+        if (Math.random() < stallChance)
+            stalled = true;
+    }
     const stats = { ...p };
     STAT_KEYS.forEach((k) => {
         if (k === "goalkeeping" && p.position !== "GK")
             return;
+        if (stalled)
+            return;
+        if (breakthrough) {
+            stats[k] = clamp(stats[k] + randInt(2, 5), 1, 99);
+            return;
+        }
         const r = Math.random();
         if (r < growthChance)
             stats[k] = clamp(stats[k] + randInt(1, 3), 1, 99);
@@ -1096,14 +1141,16 @@ function developPlayer(p, clubTier, coachSkill) {
     stats.overall = overallFor(stats);
     if (stats.overall > (stats.potential ?? 99))
         stats.potential = stats.overall;
+    developmentNote = breakthrough ? "breakthrough" : stalled ? "stalled" : null;
+    stats.developmentNote = developmentNote;
     stats.wage = stats.clubId ? newSigningWage(stats.overall, clubTier || 1) : stats.wage;
     // Value has to move as ability moves, or a cheap wonderkid stays cheap forever even after
     // becoming a genuine star — the entire point of scouting potential is that today's bargain
     // becomes tomorrow's asking price. A real development headroom (young, real gap to potential)
     // still carries a speculative premium on top of raw current ability, same as real scouting.
-    const headroom = Math.max(0, (stats.potential ?? stats.overall) - stats.overall);
+    const valueHeadroom = Math.max(0, (stats.potential ?? stats.overall) - stats.overall);
     const ageFactor = stats.age <= 21 ? 1 : stats.age <= 25 ? 0.6 : stats.age <= 29 ? 0.25 : 0;
-    const potentialPremium = 1 + (headroom / 40) * ageFactor;
+    const potentialPremium = 1 + (valueHeadroom / 40) * ageFactor;
     stats.value = Math.round(estimatedValue(stats.overall, clubTier || 1) * potentialPremium);
     stats.motmSeasonCount = 0;
     stats.yellowCardsSeason = 0;
@@ -1591,9 +1638,23 @@ function xiFromLineup(club, squadPlayers) {
     });
     return chosen.filter(Boolean);
 }
-function benchFor(players, xi) {
+function benchFor(players, xi, subPriority) {
     const used = new Set(xi.map((p) => p.id));
-    return players.filter((p) => !used.has(p.id) && !p.injuredWeeks && !p.suspendedMatches).sort((a, b) => b.overall - a.overall);
+    const pool = players.filter((p) => !used.has(p.id) && !p.injuredWeeks && !p.suspendedMatches);
+    if (subPriority && subPriority.length) {
+        // A manager's own priority order beats a flat overall sort — your specific impact sub
+        // stays your first pick even if a bench centre-back technically rates higher. Anyone not
+        // explicitly ordered (a new signing, say) falls in after, sorted by overall as before.
+        const rank = new Map(subPriority.map((id, i) => [id, i]));
+        return pool.sort((a, b) => {
+            const ra = rank.has(a.id) ? rank.get(a.id) : Infinity;
+            const rb = rank.has(b.id) ? rank.get(b.id) : Infinity;
+            if (ra !== rb)
+                return ra - rb;
+            return b.overall - a.overall;
+        });
+    }
+    return pool.sort((a, b) => b.overall - a.overall);
 }
 function moraleMult(xi) {
     if (xi.length === 0)
@@ -1767,6 +1828,46 @@ function computeDefenseResilience(defendXI, attackXI) {
     });
     return weight > 0 ? resilience / weight : 50;
 }
+function tacticalMatchupMult(defPressing, defTempo, atkXI, atkTempo) {
+    // Underneath tempo and pressing already affecting raw attacking/defensive output, there's
+    // now a genuine style clash too — nothing the player has to manage directly, just a real
+    // reason a match can go differently than the raw stats alone would suggest. Deliberately
+    // gentle (never more than about +/-12% combined) so it adds personality without swinging
+    // outcomes on its own.
+    const outfield = atkXI.filter((p) => p.position !== "GK");
+    if (!outfield.length)
+        return 1;
+    const avgPace = outfield.reduce((s, p) => s + p.pace, 0) / outfield.length;
+    const avgPassing = outfield.reduce((s, p) => s + p.passing, 0) / outfield.length;
+    let mult = 1;
+    if (defPressing === "high") {
+        // A high press suffocates a side that likes to build slowly or can't pass through it —
+        // but real pace in behind, or a side good enough to pass around it, punishes it instead.
+        if (atkTempo === "defensive")
+            mult *= 1.06;
+        if (avgPassing < 55)
+            mult *= 1.05;
+        if (avgPace > 76)
+            mult *= 0.92;
+        if (avgPassing > 76)
+            mult *= 0.94;
+    }
+    else if (defPressing === "low") {
+        // Sitting off frustrates a team that just wants to run at you directly, but a patient,
+        // technical side eventually picks a low block apart.
+        if (atkTempo === "attacking")
+            mult *= 1.06;
+        if (avgPassing > 76)
+            mult *= 0.93;
+    }
+    if (defTempo === "attacking") {
+        // Playing on the front foot generally means a higher defensive line too — good for
+        // squeezing a weak attack, exposed by real pace in behind.
+        if (avgPace > 78)
+            mult *= 0.91;
+    }
+    return clamp(mult, 0.82, 1.15);
+}
 function poissonish(lambda) {
     const L = Math.exp(-lambda);
     let k = 0, p = 1;
@@ -1865,7 +1966,7 @@ function simulateFullMatch(homeClub, awayClub, homeXI, awayXI) {
     const hCap = captainStrengthMult(homeClub, homeXI) * managerStrengthMult(homeClub.managerPerf), aCap = captainStrengthMult(awayClub, awayXI) * managerStrengthMult(awayClub.managerPerf);
     const hs = computeAttackThreat(homeXI, awayXI) * 1.1 * moraleMult(homeXI) * hb.atk * ht.atk * hCap;
     const as = computeAttackThreat(awayXI, homeXI) * moraleMult(awayXI) * ab.atk * at.atk * aCap;
-    const hDef = computeDefenseResilience(homeXI, awayXI) * hb.def * ht.def * hCap, aDef = computeDefenseResilience(awayXI, homeXI) * ab.def * at.def * aCap;
+    const hDef = computeDefenseResilience(homeXI, awayXI) * hb.def * ht.def * hCap * tacticalMatchupMult(homeClub.pressing, homeClub.tempo, awayXI, awayClub.tempo), aDef = computeDefenseResilience(awayXI, homeXI) * ab.def * at.def * aCap * tacticalMatchupMult(awayClub.pressing, awayClub.tempo, homeXI, homeClub.tempo);
     const events = [];
     const shotCounts = {}, saveCounts = {}, assistCounts = {}, concededCounts = {};
     function bumpShot(id) {
@@ -2073,7 +2174,7 @@ function simulateSegment(homeClub, awayClub, homeXI, awayXI, fromMin, toMin) {
     const hTalk = homeClub.teamTalkMult || 1, aTalk = awayClub.teamTalkMult || 1;
     const hs = computeAttackThreat(homeXI, awayXI) * 1.1 * moraleMult(homeXI) * hb.atk * ht.atk * hCap * hTalk;
     const as = computeAttackThreat(awayXI, homeXI) * moraleMult(awayXI) * ab.atk * at.atk * aCap * aTalk;
-    const hDef = computeDefenseResilience(homeXI, awayXI) * hb.def * ht.def * hCap * hTalk, aDef = computeDefenseResilience(awayXI, homeXI) * ab.def * at.def * aCap * aTalk;
+    const hDef = computeDefenseResilience(homeXI, awayXI) * hb.def * ht.def * hCap * hTalk * tacticalMatchupMult(homeClub.pressing, homeClub.tempo, awayXI, awayClub.tempo), aDef = computeDefenseResilience(awayXI, homeXI) * ab.def * at.def * aCap * aTalk * tacticalMatchupMult(awayClub.pressing, awayClub.tempo, homeXI, homeClub.tempo);
     const span = (toMin - fromMin) / 90;
     // stamina drain, injury chance, and card chance below were tuned assuming ~15-minute
     // segments (6 per match) — scale them to whatever window this call actually covers,
@@ -2582,6 +2683,18 @@ function kitBackground(kit) {
         return `linear-gradient(90deg, ${kit.primary} 50%, ${kit.secondary} 50%)`;
     return kit.primary;
 }
+function KitShirt({ kit, size = 56 }) {
+    // A real jersey silhouette (collar notch, short sleeves) rather than a flat swatch — built
+    // with a CSS clip-path so it reuses the exact same colour/pattern logic as everywhere else,
+    // no separate SVG pattern definitions needed. A genuine outline layer sits behind it at a
+    // couple of pixels larger, because plenty of real kits are white or very pale (an away kit
+    // is often just its club's home kit with primary/secondary swapped) — without this, a white
+    // shirt on this app's light background would simply be invisible.
+    const shirtClip = "polygon(38% 0%, 50% 10%, 62% 0%, 78% 10%, 100% 30%, 86% 46%, 78% 40%, 78% 100%, 22% 100%, 22% 40%, 14% 46%, 0% 30%, 22% 10%)";
+    return (React.createElement("div", { style: { width: size, height: size, position: "relative", flexShrink: 0 } },
+        React.createElement("div", { style: { position: "absolute", inset: -2, clipPath: shirtClip, WebkitClipPath: shirtClip, background: "#00000055" } }),
+        React.createElement("div", { style: { position: "absolute", inset: 0, clipPath: shirtClip, WebkitClipPath: shirtClip, background: kitBackground(kit) } })));
+}
 function clubColor(clubId) {
     let hash = 0;
     for (let i = 0; i < clubId.length; i++)
@@ -2883,7 +2996,7 @@ function Pitch({ club, squadPlayers, onAssign, onSetInstruction }) {
     const usedIds = new Set(Object.values(lineup).filter(Boolean));
     const activeSlot = slots.find((s) => s.id === openSlot);
     return (React.createElement("div", null,
-        React.createElement("div", { className: "relative w-full max-w-md mx-auto rounded-lg overflow-hidden border", style: { paddingBottom: "135%", backgroundColor: "#2E7D4F", borderColor: C.border } },
+        React.createElement("div", { className: "relative w-full max-w-md mx-auto rounded-lg overflow-hidden border pitch-aspect", style: { backgroundColor: "#2E7D4F", borderColor: C.border } },
             React.createElement("div", { className: "absolute inset-2 border-2 rounded", style: { borderColor: "rgba(255,255,255,0.4)" } }),
             React.createElement("div", { className: "absolute left-2 right-2 border-t-2", style: { top: "50%", borderColor: "rgba(255,255,255,0.4)" } }),
             React.createElement("div", { className: "absolute rounded-full border-2", style: { borderColor: "rgba(255,255,255,0.4)", width: "26%", paddingBottom: "26%", left: "37%", top: "42%" } }),
@@ -2948,7 +3061,7 @@ function Pitch({ club, squadPlayers, onAssign, onSetInstruction }) {
                         " ",
                         opt.label)))))))))));
 }
-function ClubDetail({ club, squad, history, clubsById, onBack, onSign, onView, week, viewerClubId }) {
+function ClubDetail({ club, squad, history, clubsById, onBack, onSign, onView, week, season, viewerClubId }) {
     const [seasonFilter, setSeasonFilter] = useState("all");
     const seasons = Array.from(new Set(history.map((h) => h.season))).sort((a, b) => b - a);
     const filtered = history.filter((h) => seasonFilter === "all" || h.season === Number(seasonFilter)).sort((a, b) => b.season - a.season || b.week - a.week);
@@ -3025,6 +3138,12 @@ function ClubDetail({ club, squad, history, clubsById, onBack, onSign, onView, w
             React.createElement("div", { className: "flex items-center gap-2 text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } },
                 React.createElement(Ico, { e: "\uD83C\uDFC6", size: 13 }),
                 " TROPHY CABINET"),
+            (() => { const legacy = clubLegacyLabel(club, season); return legacy && (React.createElement("div", { className: "text-[10px] font-bold mb-3", style: { color: C.amber } },
+                legacy.label,
+                " ",
+                React.createElement("span", { style: { color: C.sub, fontWeight: 400 } },
+                    "\u2014 ",
+                    legacy.desc))); })(),
             (club.leagueTitles || []).length === 0 && (club.cupTitlesHistory || []).length === 0 ? (React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nothing yet.")) : (React.createElement("div", { className: "space-y-1" },
                 (club.leagueTitles || []).map((t, i) => (React.createElement("div", { key: `lt-${i}`, className: "text-xs rounded-lg px-3 py-1.5 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
                     "\uD83C\uDFC6 ",
@@ -3131,6 +3250,7 @@ function App() {
         catch (e) { }
     }, [tab, phase]);
     const [news, setNews] = useState([]);
+    const [rumours, setRumours] = useState([]);
     const [boardFanMessages, setBoardFanMessages] = useState([]);
     const [newsFilter, setNewsFilter] = useState("all");
     const [historySeasonSel, setHistorySeasonSel] = useState(null);
@@ -3189,6 +3309,8 @@ function App() {
     const [penaltyTakerPicks, setPenaltyTakerPicks] = useState({ home: [], away: [] });
     const [findPlayerSearch, setFindPlayerSearch] = useState("");
     const [autosaveFailed, setAutosaveFailed] = useState(false);
+    const [loanRequestMsg, setLoanRequestMsg] = useState("");
+    const [loanApproachSearch, setLoanApproachSearch] = useState("");
     const [findManagerSearch, setFindManagerSearch] = useState("");
     const [defaultMatchSpeed, setDefaultMatchSpeed] = useState(1);
     const [reducePitchMotion, setReducePitchMotion] = useState(false);
@@ -3526,6 +3648,33 @@ function App() {
         });
         return issues;
     }
+    function squadDepthIssues(club) {
+        // Positions here are broad (GK/DF/MF/FW, not granular like LB/CB/RB), so this works with
+        // real depth within each group and genuine quality drop-offs rather than exact-role gaps
+        // — "you're one injury away from real trouble at the back" instead of "no natural LB".
+        if (!club || !club.formation)
+            return [];
+        const need = (FORMATIONS[club.formation] || FORMATIONS["4-4-2"]).need;
+        const squad = playersOfClub(club.id);
+        const issues = [];
+        ["GK", "DF", "MF", "FW"].forEach((pos) => {
+            const fit = squad.filter((p) => p.position === pos && !p.injuredWeeks && !p.suspendedMatches);
+            const needed = need[pos] || 0;
+            if (fit.length <= needed) {
+                issues.push({ icon: "⚠️", text: `No fit backup at ${pos} — only ${fit.length} available fit, your formation needs ${needed}.` });
+            }
+        });
+        ["DF", "MF", "FW"].forEach((pos) => {
+            const inPos = squad.filter((p) => p.position === pos).sort((a, b) => b.overall - a.overall);
+            if (inPos.length >= 2) {
+                const gap = inPos[0].overall - inPos[1].overall;
+                if (gap >= 15) {
+                    issues.push({ icon: "📉", text: `Big drop-off behind ${inPos[0].name} at ${pos} — next best is ${gap} points weaker.` });
+                }
+            }
+        });
+        return issues;
+    }
     function openMatch(fixtureOrTie, isCup) {
         // Refuse to start a match for either side if a controlled club hasn't chosen a formation
         // yet, or has a formation but hasn't actually filled every slot — otherwise xiFromLineup's
@@ -3564,7 +3713,7 @@ function App() {
             [...homeXI, ...awayXI].forEach((p) => { stamina[p.id] = 100; });
             setActiveMatch({
                 id: fixtureOrTie.id, isCup: !!isCup, cupKey: isCup ? (fixtureOrTie.cupKey || null) : null, isPlayoff: !!fixtureOrTie.isPlayoffTie, promoClubId: fixtureOrTie.promoClubId || null, surviveClubId: fixtureOrTie.surviveClubId || null, homeId: fixtureOrTie.homeId, awayId: fixtureOrTie.awayId,
-                homeXI, awayXI, homeBench: benchFor(homePlayers, homeXI), awayBench: benchFor(awayPlayers, awayXI),
+                homeXI, awayXI, homeBench: benchFor(homePlayers, homeXI, home.subPriority), awayBench: benchFor(awayPlayers, awayXI, away.subPriority),
                 homeAppeared: [...homeXI], awayAppeared: [...awayXI], cardPenalties: [], matchCards: {}, running: false,
                 minute: 0, events: [], injuries: [], subsLeftHome: 5, subsLeftAway: 5, atHalftime: false,
                 playerStats: {}, stamina, homeFormation: home.formation, awayFormation: away.formation,
@@ -4927,6 +5076,7 @@ function App() {
             const clauseTriggeredNews = [];
             const loanReturnNews = [];
             const trainingFeedback = [];
+            const breakthroughNews = [];
             const developedPlayers = w.players.map((p) => {
                 // snapshot this season's stats into the player's history log before resetting them,
                 // so their profile can show a season-by-season breakdown later
@@ -4948,6 +5098,15 @@ function App() {
                     else if (change <= -3) {
                         trainingFeedback.push({ id: uid("cm"), kind: "coach", clubId: p.clubId, playerId: p.id, playerName: p.name, tone: "bad", text: `${myCoach.name}: "${p.name} has dropped off this season — down to ${dev.overall} from ${p.overall}. Might be worth checking in with them."`, week: 1, season: season + 1, resolved: false });
                     }
+                }
+                // A genuine breakthrough or stalled season — visible for any club's player, not
+                // just yours, since "why is Sunday League FC producing a wonderkid" is exactly
+                // the kind of story worth seeing happen to someone else too.
+                if (p.clubId && dev.developmentNote === "breakthrough") {
+                    breakthroughNews.push({ text: `⭐ BREAKTHROUGH! ${p.age}-year-old ${p.name} has made huge progress this season — up from ${p.overall} to ${dev.overall} overall.`, clubIds: [p.clubId] });
+                }
+                else if (p.clubId && dev.developmentNote === "stalled" && p.age <= 23) {
+                    breakthroughNews.push({ text: `Development has stalled for ${p.name} (${p.age}) at ${clubsById[p.clubId]?.name} — little progress despite regular training this season.`, clubIds: [p.clubId] });
                 }
                 const repBumped = (motmLeader && p.id === motmLeader.id) ? { ...dev, reputationBonus: (dev.reputationBonus || 0) + 8 } : dev;
                 const withPlayerOfSeason = (motmLeader && p.id === motmLeader.id) ? { ...repBumped, playerOfSeasonCount: (repBumped.playerOfSeasonCount || 0) + 1 } : repBumped;
@@ -4983,6 +5142,9 @@ function App() {
             }
             if (loanReturnNews.length) {
                 setNews((n) => [...loanReturnNews.map((text) => ({ id: uid("n"), text: `📋 ${text}`, clubIds: [], week: newWeek, season })), ...n].slice(0, 150));
+            }
+            if (breakthroughNews.length) {
+                setNews((n) => [...breakthroughNews.map((r) => ({ id: uid("n"), text: r.text, clubIds: r.clubIds, week: newWeek, season })), ...n].slice(0, 150));
             }
             if (trainingFeedback.length) {
                 setBoardFanMessages((msgs) => [...trainingFeedback, ...msgs].slice(0, 200));
@@ -5029,7 +5191,26 @@ function App() {
             // paying a real fee if it's picking up someone's transfer-listed player.
             const { players: balancedPlayers, budgetDeltas } = reconcileAiSquads([...developedPlayers, ...debutBatch, ...academyGraduates], newClubs, controlled);
             const finalClubs = newClubs.map((c) => (budgetDeltas[c.id] ? { ...c, budget: c.budget + budgetDeltas[c.id] } : c));
-            return { ...w, clubs: finalClubs, players: balancedPlayers, staff: nextStaff };
+            // Golden Generation — checked for every club, not just the player's own, using their
+            // actual final squad for the season. A single boolean per club (not a new list to
+            // maintain) marks it as already found, so this is a genuine one-time "remember this"
+            // moment rather than something that would otherwise fire again every single season.
+            const goldenGenNews = [];
+            const goldenGenClubIds = new Set();
+            finalClubs.forEach((c) => {
+                if (c.goldenGenerationAnnounced)
+                    return;
+                const eliteYouth = balancedPlayers.filter((p) => p.clubId === c.id && p.age <= 21 && (p.potential ?? p.overall) >= 78);
+                if (eliteYouth.length >= 3) {
+                    goldenGenClubIds.add(c.id);
+                    const names = eliteYouth.slice(0, 3).map((p) => p.name).join(", ");
+                    goldenGenNews.push({ id: uid("n"), text: `✨ GOLDEN GENERATION at ${c.name} — ${names} have all emerged as genuine prospects. A batch like this doesn't come along often.`, clubIds: [c.id], week: newWeek, season: season + 1 });
+                }
+            });
+            const finalClubsWithGolden = goldenGenClubIds.size ? finalClubs.map((c) => (goldenGenClubIds.has(c.id) ? { ...c, goldenGenerationAnnounced: true } : c)) : finalClubs;
+            if (goldenGenNews.length)
+                setNews((n) => [...goldenGenNews, ...n].slice(0, 150));
+            return { ...w, clubs: finalClubsWithGolden, players: balancedPlayers, staff: nextStaff };
         });
         setSeason((s) => s + 1);
         setWeek(1);
@@ -5159,7 +5340,13 @@ function App() {
         const aiClubIds = clubs.filter((c) => !controlled.includes(c.id)).map((c) => c.id);
         let newClubs = clubs, newPlayers = players;
         const newsItems = [];
-        const attempts = 3;
+        // Deadline day escalation — more attempts (panic-buying: everyone scrambling at once),
+        // sellers more willing to let a player go (desperation to get a deal done before the
+        // window shuts), and a real premium on fees (paying over the odds against the clock).
+        const deadline = isDeadlineDay() && isTransferWindowOpen();
+        const attempts = deadline ? 8 : 3;
+        const refusalMult = deadline ? 1.45 : 1.15;
+        const feeMult = deadline ? 1.35 : 1.15;
         for (let i = 0; i < attempts && aiClubIds.length; i++) {
             const buyerId = aiClubIds[randInt(0, aiClubIds.length - 1)];
             const buyer = newClubs.find((c) => c.id === buyerId);
@@ -5171,27 +5358,47 @@ function App() {
             const listedPool = newPlayers.filter((p) => p.clubId && p.clubId !== buyerId && p.transferListed && !p.transferCooldownUntil);
             const openPool = newPlayers.filter((p) => p.clubId && p.clubId !== buyerId && !p.transferListed && !p.transferCooldownUntil && !controlled.includes(p.clubId));
             const useListed = listedPool.length > 0 && Math.random() < 0.75;
-            const pool = useListed ? listedPool : openPool;
+            let pool = useListed ? listedPool : openPool;
             if (!pool.length)
                 continue;
+            // On deadline day, a club with an obvious gap (from the same depth check the manager
+            // sees on their own Squad page) goes looking for exactly that position first, rather
+            // than picking anyone at random — a real club fixing a real problem before the window
+            // shuts, not just topping up for the sake of it.
+            if (deadline) {
+                const weakPositions = squadDepthIssues(buyer).filter((iss) => iss.text.startsWith("No fit backup")).map((iss) => iss.text.match(/at (GK|DF|MF|FW)/)?.[1]).filter(Boolean);
+                if (weakPositions.length) {
+                    const targeted = pool.filter((p) => weakPositions.includes(p.position));
+                    if (targeted.length)
+                        pool = targeted;
+                }
+            }
             const target = pool[randInt(0, pool.length - 1)];
             const sellerClub = newClubs.find((c) => c.id === target.clubId);
             if (!sellerClub)
                 continue;
             const sellerSquad = newPlayers.filter((p) => p.clubId === target.clubId);
-            const chance = refusalChance(target, sellerSquad, sellerClub, buyer, 1.15);
+            const chance = refusalChance(target, sellerSquad, sellerClub, buyer, refusalMult);
             if (Math.random() < chance)
                 continue;
-            const fee = Math.round(transferFee(target) * 1.15);
+            const fee = Math.round(transferFee(target) * feeMult * (clubIdentityFor(buyer) === "star-studded" ? 1.15 : 1));
             const cap = transferBudgetFor(buyer);
             const used = buyer.transferBudgetUsed || 0;
             if (buyer.budget < fee || used + fee > cap)
                 continue;
             // Same wage-sustainability check as the squad top-up path — affording the fee isn't the
-            // same as being able to actually pay someone every week from here on.
+            // same as being able to actually pay someone every week from here on. A Star-Studded
+            // club's whole identity is stretching further than sense dictates for a name signing;
+            // a Youth-Focused club is genuinely more cautious, preferring to develop rather than buy.
+            const buyerIdentity = clubIdentityFor(buyer);
+            const affordabilityMult = buyerIdentity === "star-studded" ? 1.25 : buyerIdentity === "youth" ? 0.85 : 1;
             const buyerWageBill = newPlayers.filter((p) => p.clubId === buyerId).reduce((s, p) => s + (p.wage || 0), 0);
-            const buyerAffordable = (weeklySponsorship(buyer) + weeklyMerchIncome(buyer)) * 1.4;
+            const buyerAffordable = (weeklySponsorship(buyer) + weeklyMerchIncome(buyer)) * 1.4 * affordabilityMult;
             if (buyerWageBill + (target.wage || 0) > buyerAffordable)
+                continue;
+            // A Youth-Focused club specifically avoids splashing out on an established, older
+            // player — that's not what they're trying to build, even if they could afford it.
+            if (buyerIdentity === "youth" && target.age >= 27 && Math.random() < 0.6)
                 continue;
             newClubs = newClubs.map((c) => {
                 if (c.id === buyerId)
@@ -5205,6 +5412,51 @@ function App() {
         }
         return { clubs: newClubs, players: newPlayers, newsItems };
     }
+    function runAiLoanActivity(clubs, players) {
+        // Genuine AI-initiated loan activity, same spirit as AI transfers — clubs proactively
+        // loan out a fringe young player who isn't getting games at their own club, and other
+        // clubs take a punt on exactly that kind of player to fill a gap without committing a
+        // full transfer fee. Loans stay available outside the transfer windows too, same as
+        // real football — it's specifically buying and selling that's gated to the windows.
+        const aiClubIds = clubs.filter((c) => !controlled.includes(c.id)).map((c) => c.id);
+        let newClubs = clubs, newPlayers = players;
+        const newsItems = [];
+        // Deadline day means more loan business getting done too, same as transfers — clubs
+        // scrambling to sort out a temporary gap before the window shuts for good.
+        const attempts = isDeadlineDay() && isTransferWindowOpen() ? 5 : 2;
+        for (let i = 0; i < attempts && aiClubIds.length; i++) {
+            const borrowerId = aiClubIds[randInt(0, aiClubIds.length - 1)];
+            const borrower = newClubs.find((c) => c.id === borrowerId);
+            if (!borrower)
+                continue;
+            const mySquadSize = newPlayers.filter((p) => p.clubId === borrowerId).length;
+            if (mySquadSize >= 24)
+                continue;
+            // A fringe young player: not already out on loan, young enough that a temporary move
+            // actually helps their development, and several other players in their own position
+            // at their own club — a real reason they're not playing regularly there.
+            const pool = newPlayers.filter((p) => p.clubId && p.clubId !== borrowerId && !p.loanParentClubId && p.age <= 23 && !controlled.includes(p.clubId));
+            const fringePool = pool.filter((p) => newPlayers.filter((sp) => sp.clubId === p.clubId && sp.position === p.position).length >= 3);
+            const finalPool = fringePool.length ? fringePool : pool;
+            if (!finalPool.length)
+                continue;
+            const target = finalPool[randInt(0, finalPool.length - 1)];
+            const parentClub = newClubs.find((c) => c.id === target.clubId);
+            if (!parentClub)
+                continue;
+            const loanFee = Math.max(500, Math.round(estimatedValue(target.overall, effectiveTierFromBudget(parentClub.startingBudget)) * 0.04));
+            if (borrower.budget < loanFee)
+                continue;
+            const borrowerWageBill = newPlayers.filter((p) => p.clubId === borrowerId).reduce((s, p) => s + (p.wage || 0), 0);
+            const borrowerAffordable = (weeklySponsorship(borrower) + weeklyMerchIncome(borrower)) * 1.4;
+            if (borrowerWageBill + (target.wage || 0) > borrowerAffordable)
+                continue;
+            newClubs = newClubs.map((c) => (c.id === borrowerId ? { ...c, budget: c.budget - loanFee } : c.id === target.clubId ? { ...c, budget: c.budget + loanFee } : c));
+            newPlayers = newPlayers.map((p) => (p.id === target.id ? { ...p, clubId: borrowerId, loanParentClubId: target.clubId, loanReturnSeason: season + 1, loanListed: false, transferListed: false, morale: Math.max(p.morale, 55) } : p));
+            newsItems.push({ id: uid("n"), text: `📋 ${target.name} joins ${borrower.name} on loan from ${parentClub.name} for the rest of the season.`, clubIds: [borrowerId, target.clubId], week, season });
+        }
+        return { clubs: newClubs, players: newPlayers, newsItems };
+    }
     function advanceWeek() {
         try {
             advanceWeekInner();
@@ -5214,16 +5466,69 @@ function App() {
         }
     }
     function advanceWeekInner() {
-        const afterLeague = simulateOtherLeagueFixtures(world.clubs, world.players);
+        const dayNewsItems = [];
+        if (isDeadlineDay() && isTransferWindowOpen()) {
+            dayNewsItems.push({ id: uid("n"), text: "🔥 TRANSFER DEADLINE DAY — clubs across every division are scrambling to get business done before the window shuts tonight.", clubIds: [], week, season });
+        }
+        let rumourClubs = world.clubs, rumourPlayers = world.players;
+        {
+            const ageWeeks = (r) => (season - r.season) * 100 + (week - r.week);
+            const stillFresh = rumours.filter((r) => ageWeeks(r) < 3);
+            const toResolve = rumours.filter((r) => !r.resolved && ageWeeks(r) >= 3);
+            const resolvedNews = [];
+            let workingClubs = world.clubs, workingPlayers = world.players;
+            toResolve.forEach((r) => {
+                const player = workingPlayers.find((p) => p.id === r.playerId);
+                const buyer = workingClubs.find((c) => c.id === r.clubId);
+                if (!player || !buyer || !player.clubId || player.clubId === r.clubId || controlled.includes(player.clubId) || controlled.includes(r.clubId)) {
+                    return;
+                }
+                if (r.isTrue) {
+                    const seller = workingClubs.find((c) => c.id === player.clubId);
+                    const fee = Math.round(transferFee(player) * 1.1);
+                    if (seller && buyer.budget >= fee) {
+                        workingClubs = workingClubs.map((c) => (c.id === r.clubId ? { ...c, budget: c.budget - fee } : c.id === player.clubId ? { ...c, budget: c.budget + fee } : c));
+                        workingPlayers = workingPlayers.map((p) => (p.id === player.id ? { ...p, clubId: r.clubId, transferListed: false, releaseRequested: false, lowMoraleWeeks: 0, morale: Math.max(p.morale, 60) } : p));
+                        resolvedNews.push({ id: uid("n"), text: `📰 RUMOUR CONFIRMED — ${r.clubName} have signed ${player.name} from ${seller.name} for ${formatMoney(fee)}.`, clubIds: [r.clubId, player.clubId], week, season });
+                    }
+                }
+            });
+            if (resolvedNews.length) {
+                dayNewsItems.push(...resolvedNews);
+                rumourClubs = workingClubs;
+                rumourPlayers = workingPlayers;
+            }
+            let nextRumours = stillFresh;
+            if (Math.random() < 0.22) {
+                const candidateClubs = rumourClubs.filter((c) => c.budget > 400000 && !controlled.includes(c.id));
+                const pool = rumourPlayers.filter((p) => p.clubId && p.overall >= 58 && !controlled.includes(p.clubId));
+                if (candidateClubs.length && pool.length) {
+                    const buyer = candidateClubs[randInt(0, candidateClubs.length - 1)];
+                    const target = pool.filter((p) => p.clubId !== buyer.id)[randInt(0, pool.filter((p) => p.clubId !== buyer.id).length - 1)];
+                    if (target) {
+                        const isTrue = Math.random() < 0.35;
+                        nextRumours = [...nextRumours, { id: uid("rumour"), playerId: target.id, clubId: buyer.id, clubName: buyer.name, isTrue, week, season, resolved: false }].slice(-10);
+                        dayNewsItems.push({ id: uid("n"), text: `📰 RUMOUR — ${buyer.name} are believed to be interested in ${target.name}.`, clubIds: [buyer.id], week, season });
+                    }
+                }
+            }
+            setRumours(nextRumours);
+        }
+        const afterLeague = simulateOtherLeagueFixtures(rumourClubs, rumourPlayers);
         const afterCupRaw = simulateOtherCupTies(afterLeague.clubs, afterLeague.players);
         const afterTransfers = runAiTransferActivity(afterCupRaw.clubs, afterCupRaw.players);
-        const afterOffers = resolvePendingOffers(afterTransfers.clubs, afterTransfers.players, world.pendingOffers);
+        const afterLoans = runAiLoanActivity(afterTransfers.clubs, afterTransfers.players);
+        const afterOffers = resolvePendingOffers(afterLoans.clubs, afterLoans.players, world.pendingOffers);
         const afterCup = { clubs: afterOffers.clubs, players: afterOffers.players };
         setWorld((w) => ({ ...w, clubs: afterCup.clubs, players: afterCup.players, pendingOffers: afterOffers.pendingOffers }));
         if (afterTransfers.newsItems.length)
             setNews((n) => [...afterTransfers.newsItems, ...n].slice(0, 150));
+        if (afterLoans.newsItems.length)
+            setNews((n) => [...afterLoans.newsItems, ...n].slice(0, 150));
         if (afterOffers.newsItems.length)
             setNews((n) => [...afterOffers.newsItems, ...n].slice(0, 150));
+        if (dayNewsItems.length)
+            setNews((n) => [...dayNewsItems, ...n].slice(0, 150));
         runManagerChurn(afterCup.clubs);
         runAiFormationVariety(afterCup.clubs);
         updateManagerPerformance(afterCup.clubs);
@@ -5233,6 +5538,7 @@ function App() {
             generateAndSimulatePlayoffs(afterCup.clubs);
         }
         const newReleaseRequests = [];
+        const newMoraleWarnings = [];
         const bonusPayouts = {};
         const leaderClubIds = new Set(world.players.filter((pl) => pl.clubId && personalityFor(pl) === "leader").map((pl) => pl.clubId));
         setWorld((w) => ({
@@ -5279,6 +5585,11 @@ function App() {
                 if (np.clubId && leaderClubIds.has(np.clubId)) {
                     np = { ...np, morale: clamp(np.morale + 0.4, 0, 100) };
                 }
+                // A player who wanted out and is still here when the window shuts is a genuine
+                // disappointment, not a non-event — a real hit, not the routine weekly drift.
+                if (np.clubId && isDeadlineDay() && isTransferWindowOpen() && (np.transferListed || np.releaseRequested)) {
+                    np = { ...np, morale: clamp(np.morale - 6, 0, 100) };
+                }
                 // match fatigue builds up over consecutive starts and only meaningfully recovers with an
                 // actual rest week — separate from in-match stamina (which resets every game), this is
                 // what should eventually force genuine squad rotation over a season. A good fitness coach
@@ -5299,6 +5610,14 @@ function App() {
                     if (np.morale < moraleThreshold) {
                         const lowWeeks = (np.lowMoraleWeeks || 0) + 1;
                         np = { ...np, lowMoraleWeeks: lowWeeks };
+                        // An early, specific warning the first week real concern shows — genuinely
+                        // actionable (a manager can respond to "wants more football" in a way they
+                        // can't respond to a number falling) — only for the player's own clubs, so
+                        // this doesn't fill the news feed with strangers' squad problems.
+                        if (lowWeeks === 1 && controlled.includes(np.clubId)) {
+                            const reason = moraleReason(np, clubsById[np.clubId]);
+                            newMoraleWarnings.push({ name: np.name, clubId: np.clubId, reasonText: reason.text });
+                        }
                         if (lowWeeks >= weeksNeeded && !np.releaseRequested) {
                             np = { ...np, releaseRequested: true };
                             newReleaseRequests.push({ name: np.name, clubId: np.clubId });
@@ -5313,6 +5632,9 @@ function App() {
         }));
         if (newReleaseRequests.length) {
             setNews((n) => [...newReleaseRequests.map((r) => ({ id: uid("n"), text: `${r.name} is unhappy at ${clubsById[r.clubId]?.name} and has requested to leave.`, clubIds: [r.clubId], week, season })), ...n].slice(0, 150));
+        }
+        if (newMoraleWarnings.length) {
+            setNews((n) => [...newMoraleWarnings.map((r) => ({ id: uid("n"), text: `${r.name} is becoming unsettled at ${clubsById[r.clubId]?.name} — ${r.reasonText.charAt(0).toLowerCase()}${r.reasonText.slice(1)}.`, clubIds: [r.clubId], week, season })), ...n].slice(0, 150));
         }
         if (Object.keys(bonusPayouts).length) {
             setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (bonusPayouts[c.id] ? { ...c, budget: c.budget - bonusPayouts[c.id] } : c)) }));
@@ -5332,8 +5654,11 @@ function App() {
                 // A weekly snapshot, not an event log — comparing consecutive snapshots captures
                 // the full net effect of everything that happened that week (wages, income,
                 // transfers, matchday takings) without needing to separately track every single
-                // source of a budget change throughout the codebase.
-                const budgetHistory = [...(c.budgetHistory || []), { season, week, budget: newBudget }].slice(-104);
+                // source of a budget change throughout the codebase. Only tracked for clubs the
+                // player actually controls — the Finance graph can never show an AI club's
+                // history anyway, so tracking it for all 76 clubs every single week was pure
+                // wasted, ever-growing save size for something nobody could ever see.
+                const budgetHistory = controlled.includes(c.id) ? [...(c.budgetHistory || []), { season, week, budget: newBudget }].slice(-52) : c.budgetHistory;
                 return { ...c, budget: newBudget, budgetHistory, merchTotalEarned: (c.merchTotalEarned || 0) + merch, stadiumCondition: clamp((c.stadiumCondition ?? 80) - conditionDecay, 20, 100) };
             }),
         }));
@@ -5636,6 +5961,36 @@ function App() {
     function toggleTransferListed(playerId) {
         setWorld((w) => ({ ...w, players: w.players.map((p) => (p.id === playerId ? { ...p, transferListed: !p.transferListed } : p)) }));
     }
+    function moraleReason(p, club) {
+        // Derived from what's already known about the player and their situation, not a new
+        // stored field — keeps this in sync automatically and adds nothing to save size. The
+        // point isn't a perfectly accurate diagnosis, just turning "morale: 47" into something a
+        // manager can actually act on.
+        if (!club)
+            return { icon: "😐", text: "Settling in" };
+        if (p.releaseRequested)
+            return { icon: "🚪", text: "Wants to leave" };
+        if (p.morale >= 80)
+            return { icon: "😊", text: "Very happy" };
+        const personality = personalityFor(p);
+        const noGameTime = p.lastPlayedWeek !== week && week - (p.lastPlayedWeek || 0) >= 2;
+        if (noGameTime && p.morale < 60)
+            return { icon: "⏱️", text: "Wants more first-team football" };
+        if (personality === "ambitious" && club.tier <= 2 && p.morale < 65)
+            return { icon: "🌟", text: "Wants to play at a bigger club" };
+        const expected = expectedWage(p, club);
+        if (p.wage < expected * 0.8 && p.morale < 60)
+            return { icon: "💰", text: "Feels underpaid for his ability" };
+        if (club.id === p.clubId && (p.contractWeeks || 999) < 20 && p.morale < 65)
+            return { icon: "📝", text: "Wants a new contract" };
+        const recentGames = matchHistory.filter((h) => !h.isCup && !h.isPlayoff && (h.homeId === club.id || h.awayId === club.id)).slice(0, 5);
+        const losses = recentGames.filter((h) => (h.homeId === club.id && h.homeGoals < h.awayGoals) || (h.awayId === club.id && h.awayGoals < h.homeGoals)).length;
+        if (losses >= 3 && p.morale < 60)
+            return { icon: "📉", text: "Unhappy about recent results" };
+        if (p.morale >= 60)
+            return { icon: "🙂", text: "Happy with teammates" };
+        return { icon: "😐", text: "Settling in" };
+    }
     function areRivals(clubIdA, clubIdB) {
         const a = clubsById[clubIdA], b = clubsById[clubIdB];
         if (!a || !b || a.id === b.id)
@@ -5796,13 +6151,23 @@ function App() {
         const parentClub = player ? clubsById[player.clubId] : null;
         const borrowerClub = clubsById[borrowerClubId];
         if (!player || !parentClub || !borrowerClub)
-            return;
+            return "invalid";
         // A modest, one-off fee to the parent club — the borrowing club takes on the player's
         // existing wage in full, same as most real loan deals rather than a wage split, to keep
         // this readable. They return automatically at the end of the season regardless of form.
         const loanFee = Math.max(500, Math.round(estimatedValue(player.overall, effectiveTierFromBudget(parentClub.startingBudget)) * 0.04));
         if (borrowerClub.budget < loanFee)
-            return;
+            return "cant-afford";
+        // A player already loan-listed has already signalled they're open to it — genuinely
+        // guaranteed. Anyone else can still be approached, same as a real loan enquiry, but a
+        // parent club is understandably far more reluctant to weaken their own squad for free —
+        // a real chance of being turned down, not a certainty either way.
+        if (!player.loanListed) {
+            const parentSquad = world.players.filter((p) => p.clubId === player.clubId);
+            const chance = refusalChance(player, parentSquad, parentClub, borrowerClub, 1.3);
+            if (Math.random() < chance)
+                return "rejected";
+        }
         setWorld((w) => ({
             ...w,
             clubs: w.clubs.map((c) => {
@@ -5815,6 +6180,7 @@ function App() {
             players: w.players.map((p) => (p.id === playerId ? { ...p, clubId: borrowerClubId, loanParentClubId: player.clubId, loanReturnSeason: season + 1, loanListed: false, transferListed: false, morale: Math.max(p.morale, 55) } : p)),
         }));
         setNews((n) => [{ id: uid("n"), text: `📋 ${player.name} joins ${borrowerClub.name} on loan from ${parentClub.name} for the rest of the season.`, clubIds: [borrowerClubId, parentClub.id], week, season }, ...n].slice(0, 150));
+        return "accepted";
     }
     function recallLoan(playerId) {
         // A genuine option, not the default — pulling a player back mid-season is a real decision
@@ -5836,6 +6202,27 @@ function App() {
     }
     function setTrainingFocus(clubId, focus) {
         setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === clubId ? { ...c, trainingFocus: focus } : c)) }));
+    }
+    function moveSubPriority(clubId, playerId, direction) {
+        setWorld((w) => ({
+            ...w,
+            clubs: w.clubs.map((c) => {
+                if (c.id !== clubId)
+                    return c;
+                const squad = w.players.filter((p) => p.clubId === clubId);
+                // Anyone not yet explicitly ordered defaults to bench-by-overall order — moving
+                // one of them is what actually creates the priority list for the first time.
+                const current = (c.subPriority && c.subPriority.length) ? c.subPriority.slice() : benchFor(squad, [], null).map((p) => p.id);
+                const idx = current.indexOf(playerId);
+                if (idx === -1)
+                    return c;
+                const swapWith = idx + direction;
+                if (swapWith < 0 || swapWith >= current.length)
+                    return c;
+                [current[idx], current[swapWith]] = [current[swapWith], current[idx]];
+                return { ...c, subPriority: current };
+            }),
+        }));
     }
     function setClubColor(clubId, color) {
         setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === clubId ? { ...c, customColor: color } : c)) }));
@@ -6026,6 +6413,12 @@ function App() {
         // and a shorter late-season window. Signing free agents is unaffected — this only gates
         // actually buying a player who belongs to another club.
         return (week >= 1 && week <= 6) || (week >= 16 && week <= 20);
+    }
+    function isDeadlineDay() {
+        // The final week of either window — where the real drama happens in an actual transfer
+        // market. Clubs panic-buy, prices spike, and business that's been dragging all window
+        // suddenly gets done or falls through for good.
+        return week === 6 || week === 20;
     }
     function openNegotiation(player) {
         if (!isTransferWindowOpen())
@@ -6372,7 +6765,7 @@ function App() {
         reader.readAsText(file);
     }
     function buildSavePayload() {
-        return { world, managers, fixtures, divisionCups, empireCup, playoffTies, matchHistory, seasonHistory, week, season, controlled, activeIdx, news, hasRenamedAnyPlayer, unlockedAchievements, managerReputations, managerStats, managerSeasonStats, managerSeasonHistory, managerNames, hiredScout, scoutCooldowns, incomingOffers };
+        return { world, managers, fixtures, divisionCups, empireCup, playoffTies, matchHistory, seasonHistory, week, season, controlled, activeIdx, news, rumours, hasRenamedAnyPlayer, unlockedAchievements, managerReputations, managerStats, managerSeasonStats, managerSeasonHistory, managerNames, hiredScout, scoutCooldowns, incomingOffers };
     }
     function slotLabelFor() {
         const names = controlled.map((cid) => clubsById[cid]?.name).filter(Boolean);
@@ -6553,6 +6946,7 @@ function App() {
                 setControlled(data.controlled);
                 setActiveIdx(data.activeIdx || 0);
                 setNews(data.news || []);
+                setRumours(data.rumours || []);
                 setHasRenamedAnyPlayer(!!data.hasRenamedAnyPlayer);
                 setUnlockedAchievements(data.unlockedAchievements || []);
                 setManagerReputations(data.managerReputations || (data.managerReputation != null ? [data.managerReputation, data.managerReputation] : [50, 50]));
@@ -7403,7 +7797,7 @@ function App() {
                             React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
                                 React.createElement("div", { className: "text-lg font-black" }, viewingPlayer.seasonGoalsConceded || 0),
                                 React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, "CONCEDED THIS SEASON")))),
-                        React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } },
+                        React.createElement("div", { className: "text-[10px] mb-1", style: { color: C.sub } },
                             viewingPlayer.clubId ? `Contracted to ${clubsById[viewingPlayer.clubId]?.name} — ${viewingPlayer.contractWeeks} weeks remaining` : "Free agent",
                             " \u00B7 Morale ",
                             viewingPlayer.morale,
@@ -7413,6 +7807,10 @@ function App() {
                             viewingPlayer.yellowCardsSeason || 0,
                             " this season",
                             viewingPlayer.transferListed ? " · 📋 Transfer listed" : ""),
+                        viewingPlayer.clubId && (() => { const mr = moraleReason(viewingPlayer, clubsById[viewingPlayer.clubId]); return (React.createElement("div", { className: "text-[10px] mb-3 font-bold" },
+                            mr.icon,
+                            " ",
+                            mr.text)); })(),
                         (viewingPlayer.nationality || viewingPlayer.height || viewingPlayer.weight || viewingPlayer.preferredFoot || viewingPlayer.bodyType) && (React.createElement("div", { className: "rounded-lg p-3 mb-3 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
                             React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-2", style: { color: C.green } }, "PLAYER INFO"),
                             React.createElement("div", { className: "grid grid-cols-2 gap-y-1.5 gap-x-2 text-xs" },
@@ -7723,6 +8121,7 @@ function App() {
         { key: "academy", label: "Youth Academy", icon: "🌱" },
         { key: "sponsorship", label: "Sponsorship", icon: "📋" },
         { key: "kit", label: "Kit Colours", icon: "🎽" },
+        { key: "numbers", label: "Squad Numbers", icon: "🔢" },
     ];
     const MANAGER_HUB_ITEMS = [
         { key: "messages", label: "Messages", icon: "💬" },
@@ -7781,7 +8180,8 @@ function App() {
                         " ",
                         clubsById[oppId]?.name)));
             })(),
-            autosaveFailed && (React.createElement("div", { className: "w-full rounded-lg px-3 py-2 text-xs font-bold mt-2 border", style: { backgroundColor: "rgba(200,60,60,0.1)", borderColor: C.red, color: C.red } }, "\u26A0\uFE0F Autosave failed \u2014 your browser's storage is likely full. Go to Manager \u2192 Save & Load and try Save now, or free up space by deleting an old save you no longer need from Load Game."))),
+            autosaveFailed && (React.createElement("div", { className: "w-full rounded-lg px-3 py-2 text-xs font-bold mt-2 border", style: { backgroundColor: "rgba(200,60,60,0.1)", borderColor: C.red, color: C.red } }, "\u26A0\uFE0F Autosave failed \u2014 your browser's storage is likely full. Go to Manager \u2192 Save & Load and try Save now, or free up space by deleting an old save you no longer need from Load Game.")),
+            isDeadlineDay() && isTransferWindowOpen() && (React.createElement("div", { className: "w-full rounded-lg px-3 py-2 text-xs font-bold mt-2 border flex items-center gap-1.5", style: { backgroundColor: "rgba(184,57,14,0.1)", borderColor: "#B8390E", color: "#B8390E" } }, "\uD83D\uDD25 DEADLINE DAY \u2014 the transfer window shuts tonight. Last chance to get business done."))),
         React.createElement("div", { className: "max-w-4xl lg:max-w-6xl mx-auto px-3 sm:px-6 pb-24 pt-2" },
             tab === "play" && !activeClub && world && (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, "CURRENTLY UNEMPLOYED"),
@@ -7829,11 +8229,13 @@ function App() {
                             React.createElement("span", { className: "text-[9px] font-bold px-2 py-0.5 rounded-full border", style: { borderColor: C.border, color: C.sub } }, isHome ? "HOME" : "AWAY"),
                             opp && areRivals(activeClubId, opp.id) && React.createElement("span", { className: "text-[9px] font-bold px-2 py-0.5 rounded-full", style: { backgroundColor: "#B8390E", color: "#FFFFFF" } }, "\uD83D\uDD25 DERBY")),
                         React.createElement("div", { className: "flex items-center justify-between" },
-                            React.createElement("div", { className: "flex-1 text-center" },
-                                React.createElement("div", { className: "pse-display text-lg leading-tight" }, activeClub.name)),
+                            React.createElement("div", { className: "flex-1 flex flex-col items-center text-center" },
+                                React.createElement(KitShirt, { kit: kitFor(activeClub, isHome), size: 40 }),
+                                React.createElement("div", { className: "pse-display text-lg leading-tight mt-1" }, activeClub.name)),
                             React.createElement("div", { className: "pse-display text-sm mx-2", style: { color: C.sub } }, "VS"),
-                            React.createElement("div", { className: "flex-1 text-center" },
-                                React.createElement("div", { className: "pse-display text-lg leading-tight" }, opp?.name))),
+                            React.createElement("div", { className: "flex-1 flex flex-col items-center text-center" },
+                                opp && React.createElement(KitShirt, { kit: kitFor(opp, !isHome), size: 40 }),
+                                React.createElement("div", { className: "pse-display text-lg leading-tight mt-1" }, opp?.name))),
                         React.createElement("div", { className: "text-[10px] text-center mt-1.5", style: { color: C.sub } },
                             hasFixture ? `Week ${week}` : isPlayoffMatch ? "One match, no draw — penalties if level" : "Knockout tie",
                             isHome ? " · Your ground" : " · Away"),
@@ -7877,6 +8279,30 @@ function App() {
                             " OVR AVG")),
                     React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Tap a position on the pitch to assign a player. This lineup carries over to every match until you change it."),
                     React.createElement(Pitch, { club: activeClub, squadPlayers: playersOfClub(activeClubId), onAssign: (slotId, playerId) => assignSlot(activeClubId, slotId, playerId), onSetInstruction: (slotId, key) => setSlotInstruction(activeClubId, slotId, key) })),
+                (() => {
+                    const xi = xiFromLineup(activeClub, playersOfClub(activeClubId)).filter(Boolean);
+                    const bench = benchFor(playersOfClub(activeClubId), xi, activeClub.subPriority);
+                    if (!bench.length)
+                        return null;
+                    return (React.createElement("div", { className: "rounded-lg p-4 mb-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
+                        React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "SUBSTITUTE PRIORITY"),
+                        React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Who you'd actually reach for first, not just whoever rates highest \u2014 reorder to match how you'd really use your bench. Anyone injured or suspended is left off until they're available again."),
+                        React.createElement("div", { className: "space-y-1" }, bench.map((p, i) => (React.createElement("div", { key: p.id, className: "flex items-center justify-between gap-2 text-xs px-2.5 py-2 rounded border", style: { borderColor: C.border } },
+                            React.createElement("span", null,
+                                React.createElement("span", { className: "font-bold", style: { color: C.sub } },
+                                    i + 1,
+                                    "."),
+                                " ",
+                                React.createElement("span", { className: "font-bold" }, p.name),
+                                " ",
+                                React.createElement("span", { style: { color: C.sub } },
+                                    p.position,
+                                    " \u00B7 OVR ",
+                                    p.overall)),
+                            React.createElement("span", { className: "flex gap-1 flex-shrink-0" },
+                                React.createElement("button", { onClick: () => moveSubPriority(activeClubId, p.id, -1), disabled: i === 0, className: "w-6 h-6 rounded border text-xs font-bold disabled:opacity-30", style: { borderColor: C.border } }, "\u2191"),
+                                React.createElement("button", { onClick: () => moveSubPriority(activeClubId, p.id, 1), disabled: i === bench.length - 1, className: "w-6 h-6 rounded border text-xs font-bold disabled:opacity-30", style: { borderColor: C.border } }, "\u2193"))))))));
+                })(),
                 (() => {
                     const upcoming = (myWeekFixture && !myWeekFixture.played) ? myWeekFixture : (myCupTie || null);
                     if (!upcoming)
@@ -7949,6 +8375,17 @@ function App() {
                         React.createElement("div", null,
                             React.createElement("div", { className: "text-sm font-black", style: { color: wonderkidCount ? "#B8860B" : C.text } }, wonderkidCount),
                             React.createElement("div", { className: "text-[8px]", style: { color: C.sub } }, "WONDERKIDS"))));
+                })(),
+                (() => {
+                    const depthIssues = squadDepthIssues(activeClub);
+                    if (!depthIssues.length)
+                        return null;
+                    return (React.createElement("div", { className: "rounded-lg p-3 mb-3 border", style: { backgroundColor: "#FBF3E2", borderColor: C.amber } },
+                        React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.amber } }, "SQUAD BALANCE"),
+                        React.createElement("div", { className: "space-y-1" }, depthIssues.map((iss, i) => (React.createElement("div", { key: i, className: "text-xs" },
+                            iss.icon,
+                            " ",
+                            iss.text))))));
                 })(),
                 (() => {
                     const onLoanOut = world.players.filter((p) => p.loanParentClubId === activeClubId);
@@ -8073,9 +8510,11 @@ function App() {
                     React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, div.name.toUpperCase()),
                     React.createElement(LeagueTableView, { rows: tableFor(div.id), divIndex: idx, matchHistory: matchHistory })))))),
             tab === "clubhub" && activeClub && (React.createElement("div", null,
-                React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } },
-                    "\uD83D\uDEE1\uFE0F ",
-                    activeClub.name.toUpperCase()),
+                React.createElement("div", { className: "flex items-center gap-2 mb-1" },
+                    React.createElement(KitShirt, { kit: kitFor(activeClub, true), size: 32 }),
+                    React.createElement("div", { className: "text-[11px] tracking-widest font-bold", style: { color: C.green } },
+                        "\uD83D\uDEE1\uFE0F ",
+                        activeClub.name.toUpperCase())),
                 (() => { const idKey = clubIdentityFor(activeClub); const info = CLUB_IDENTITIES[idKey]; return (React.createElement("div", { className: "text-[10px] mb-2", title: info.desc },
                     info.icon,
                     " ",
@@ -8129,6 +8568,12 @@ function App() {
                     React.createElement("div", { className: "flex items-center gap-2 text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } },
                         React.createElement(Ico, { e: "\uD83C\uDFC6", size: 13 }),
                         " TROPHY CABINET"),
+                    (() => { const legacy = clubLegacyLabel(activeClub, season); return legacy && (React.createElement("div", { className: "text-[10px] font-bold mb-3", style: { color: C.amber } },
+                        legacy.label,
+                        " ",
+                        React.createElement("span", { style: { color: C.sub, fontWeight: 400 } },
+                            "\u2014 ",
+                            legacy.desc))); })(),
                     (activeClub.leagueTitles || []).length === 0 && (activeClub.cupTitlesHistory || []).length === 0 ? (React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nothing yet \u2014 get winning.")) : (React.createElement("div", { className: "space-y-1" },
                         (activeClub.leagueTitles || []).map((t, i) => (React.createElement("div", { key: `lt-${i}`, className: "text-xs rounded-lg px-3 py-1.5 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
                             "\uD83C\uDFC6 ",
@@ -8357,8 +8802,12 @@ function App() {
                     world.players.filter((p) => p.clubId && p.clubId !== activeClubId && p.transferListed).length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nobody anywhere is currently transfer listed.")),
                 React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5 mt-4", style: { color: "#3B82C4" } }, "\uD83D\uDCCB LOAN MARKET"),
                 React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "Players other clubs have made available for a season-long loan \u2014 a small fee to their parent club, and you cover their wages while they're with you."),
+                loanRequestMsg && React.createElement("div", { className: "text-[10px] font-bold mb-2 px-2 py-1.5 rounded", style: { backgroundColor: loanRequestMsg.startsWith("✅") ? "#E8F5E9" : "#FBEDEA", color: loanRequestMsg.startsWith("✅") ? C.green : C.red } }, loanRequestMsg),
                 React.createElement("div", { className: "space-y-1.5" },
-                    world.players.filter((p) => p.clubId && p.clubId !== activeClubId && p.loanListed && (marketFilter.pos === "all" || p.position === marketFilter.pos) && (!marketFilter.search || p.name.toLowerCase().includes(marketFilter.search.toLowerCase()))).sort((a, b) => b.overall - a.overall).slice(0, 40).map((p) => (React.createElement("button", { key: p.id, onClick: () => activeClub && activeClub.budget >= Math.max(500, Math.round(estimatedValue(p.overall, effectiveTierFromBudget(clubsById[p.clubId]?.startingBudget)) * 0.04)) && requestLoan(p.id, activeClubId), className: "w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs border text-left", style: { backgroundColor: C.card, borderColor: "#3B82C4" } },
+                    world.players.filter((p) => p.clubId && p.clubId !== activeClubId && p.loanListed && (marketFilter.pos === "all" || p.position === marketFilter.pos) && (!marketFilter.search || p.name.toLowerCase().includes(marketFilter.search.toLowerCase()))).sort((a, b) => b.overall - a.overall).slice(0, 40).map((p) => (React.createElement("button", { key: p.id, onClick: () => { if (!(activeClub && activeClub.budget >= Math.max(500, Math.round(estimatedValue(p.overall, effectiveTierFromBudget(clubsById[p.clubId]?.startingBudget)) * 0.04)))) {
+                            setLoanRequestMsg(`❌ Can't afford the loan fee for ${p.name}.`);
+                            return;
+                        } const result = requestLoan(p.id, activeClubId); setLoanRequestMsg(result === "accepted" ? `✅ ${p.name} joins on loan.` : result === "cant-afford" ? `❌ Can't afford the loan fee for ${p.name}.` : `❌ ${clubsById[p.clubId]?.name} turned down the loan request.`); }, className: "w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs border text-left", style: { backgroundColor: C.card, borderColor: "#3B82C4" } },
                         React.createElement("span", null,
                             React.createElement("span", { className: "font-bold" }, p.name),
                             " ",
@@ -8369,7 +8818,24 @@ function App() {
                                 " \u00B7 ",
                                 clubsById[p.clubId]?.name)),
                         React.createElement("span", { className: "text-[9px] font-bold", style: { color: "#3B82C4" } }, "Request Loan")))),
-                    world.players.filter((p) => p.clubId && p.clubId !== activeClubId && p.loanListed).length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nobody anywhere has a player out on loan right now."))))),
+                    world.players.filter((p) => p.clubId && p.clubId !== activeClubId && p.loanListed).length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nobody anywhere has a player out on loan right now.")),
+                React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5 mt-4", style: { color: "#3B82C4" } }, "APPROACH FOR A LOAN"),
+                React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "Ask about any player, not just who's listed \u2014 a parent club can say no, especially for a player they actually rely on."),
+                React.createElement("input", { value: loanApproachSearch, onChange: (e) => setLoanApproachSearch(e.target.value), placeholder: "Search any player by name...", className: "w-full rounded-lg px-3 py-2 text-xs border mb-2", style: { borderColor: C.border } }),
+                loanApproachSearch.length >= 2 && (React.createElement("div", { className: "space-y-1.5" }, world.players.filter((p) => p.clubId && p.clubId !== activeClubId && !p.loanParentClubId && !controlled.includes(p.clubId) && p.name.toLowerCase().includes(loanApproachSearch.toLowerCase())).sort((a, b) => b.overall - a.overall).slice(0, 15).map((p) => (React.createElement("button", { key: p.id, onClick: () => { if (!(activeClub && activeClub.budget >= Math.max(500, Math.round(estimatedValue(p.overall, effectiveTierFromBudget(clubsById[p.clubId]?.startingBudget)) * 0.04)))) {
+                        setLoanRequestMsg(`❌ Can't afford the loan fee for ${p.name}.`);
+                        return;
+                    } const result = requestLoan(p.id, activeClubId); setLoanRequestMsg(result === "accepted" ? `✅ ${p.name} joins on loan.` : result === "cant-afford" ? `❌ Can't afford the loan fee for ${p.name}.` : `❌ ${clubsById[p.clubId]?.name} turned down the loan request.`); }, className: "w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
+                    React.createElement("span", null,
+                        React.createElement("span", { className: "font-bold" }, p.name),
+                        " ",
+                        React.createElement("span", { style: { color: C.sub } },
+                            p.position,
+                            " \u00B7 OVR ",
+                            p.overall,
+                            " \u00B7 ",
+                            clubsById[p.clubId]?.name)),
+                    React.createElement("span", { className: "text-[9px] font-bold", style: { color: C.sub } }, "Ask to Loan"))))))))),
             tab === "cup" && world && (() => {
                 const myClub = clubsById[activeClubId];
                 const myCupDef = myClub ? CUP_DEFS.find((d) => d.divisionId === myClub.divisionId) : null;
@@ -8445,7 +8911,7 @@ function App() {
                             }),
                             !cupObj?.champion && roundTies.ties.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Waiting on the next round to be drawn."))))));
             })(),
-            tab === "clubs" && world && (clubDetailId ? (React.createElement(ClubDetail, { club: clubsById[clubDetailId], squad: playersOfClub(clubDetailId), history: matchHistory.filter((h) => h.homeId === clubDetailId || h.awayId === clubDetailId), clubsById: clubsById, onBack: () => setClubDetailId(null), onSign: clubDetailId === activeClubId ? null : (p) => openNegotiation(p), onView: (p) => setViewingPlayerId(p.id), week: week, viewerClubId: activeClubId })) : (React.createElement("div", null,
+            tab === "clubs" && world && (clubDetailId ? (React.createElement(ClubDetail, { club: clubsById[clubDetailId], squad: playersOfClub(clubDetailId), history: matchHistory.filter((h) => h.homeId === clubDetailId || h.awayId === clubDetailId), clubsById: clubsById, onBack: () => setClubDetailId(null), onSign: clubDetailId === activeClubId ? null : (p) => openNegotiation(p), onView: (p) => setViewingPlayerId(p.id), week: week, season: season, viewerClubId: activeClubId })) : (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, "ALL CLUBS"),
                 DIVISIONS_SEED.map((div) => (React.createElement("div", { key: div.id, className: "mb-4" },
                     React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.amber } }, div.name.toUpperCase()),
@@ -8992,6 +9458,21 @@ function App() {
                         React.createElement("div", { className: "text-[8px] mb-1", style: { color: C.sub } }, "Pattern"),
                         React.createElement("div", { className: "flex flex-wrap gap-1.5" }, Object.entries(KIT_PATTERNS).map(([key, info]) => React.createElement(Pill, { key: key, active: (kit.pattern || "solid") === key, onClick: () => setKitColor(activeClubId, kitType, "pattern", key) }, info.label)))));
                 }))),
+            tab === "numbers" && activeClub && world && (React.createElement("div", null,
+                React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "SQUAD NUMBERS"),
+                React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Worth a proper look at the start of each season, same as any real club does \u2014 review the whole squad at once here rather than one player at a time. Giving a number already taken swaps it with whoever had it."),
+                React.createElement("div", { className: "space-y-1" }, playersOfClub(activeClubId).sort((a, b) => (a.jerseyNumber ?? 999) - (b.jerseyNumber ?? 999)).map((p) => (React.createElement("div", { key: p.id, className: "flex items-center justify-between gap-2 text-xs px-2.5 py-2 rounded border", style: { borderColor: C.border } },
+                    React.createElement("span", null,
+                        React.createElement("span", { className: "font-bold" }, p.name),
+                        " ",
+                        React.createElement("span", { style: { color: C.sub } },
+                            p.position,
+                            " \u00B7 Age ",
+                            p.age)),
+                    editingJerseyId === p.id ? (React.createElement("input", { autoFocus: true, type: "number", min: "1", max: "99", value: jerseyEditValue, onChange: (e) => setJerseyEditValue(e.target.value), onBlur: () => { changeJerseyNumber(p.id, jerseyEditValue); setEditingJerseyId(null); }, onKeyDown: (e) => e.key === "Enter" && (changeJerseyNumber(p.id, jerseyEditValue), setEditingJerseyId(null)), className: "border rounded px-1.5 py-1 text-xs flex-shrink-0", style: { width: 52, ...selStyle } })) : (React.createElement("button", { onClick: () => { setEditingJerseyId(p.id); setJerseyEditValue(String(p.jerseyNumber ?? "")); }, className: "flex items-center gap-1 font-bold flex-shrink-0 px-2 py-1 rounded border", style: { borderColor: C.border, color: p.jerseyNumber ? C.text : C.sub } },
+                        "#",
+                        p.jerseyNumber ?? "—",
+                        React.createElement(Ico, { e: "\u270E", size: 11 }))))))))),
             tab === "sponsorship" && activeClub && world && (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "SPONSORSHIP & MARKETING"),
                 React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Everything that grows your income and your following, in one place."),
@@ -9321,7 +9802,7 @@ function App() {
                         season,
                         "\u00B7W",
                         week)),
-                React.createElement(TabButton, { active: ["clubhub", "squad", "staff", "finance", "academy", "sponsorship", "kit"].includes(tab), onClick: () => setTab("clubhub"), icon: "\uD83D\uDEE1\uFE0F", label: "Club" }),
+                React.createElement(TabButton, { active: ["clubhub", "squad", "staff", "finance", "academy", "sponsorship", "kit", "numbers"].includes(tab), onClick: () => setTab("clubhub"), icon: "\uD83D\uDEE1\uFE0F", label: "Club" }),
                 React.createElement(TabButton, { active: ["managerhub", "jobinfo", "boardobjectives", "training", "savepage", "fixtures", "scouting", "leaderboard", "achievements", "messages", "guide"].includes(tab), onClick: () => setTab("managerhub"), icon: "\uD83D\uDC54", label: "Manager" }),
                 React.createElement(TabButton, { active: ["worldhub", "table", "cup", "market", "clubs", "results", "playerstats", "fanpopularity", "news", "history"].includes(tab), onClick: () => setTab("worldhub"), icon: "\uD83C\uDF0D", label: "World" }),
                 React.createElement(TabButton, { active: tab === "play", onClick: () => setTab("play"), icon: "\u26BD", label: "Play" }),
