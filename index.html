@@ -2015,8 +2015,8 @@ function simulateFullMatch(homeClub, awayClub, homeXI, awayXI) {
     // chances created), then every shot resolves individually: who's taking it, who's facing it
     // in goal, and whether it actually goes in — a goal is what happens when a shot succeeds,
     // not a number decided in advance and handed to whoever had the best shooting stat after.
-    const shotRateHome = clamp(14.5 * (hs / ((hs + aDef) / 2 || 1)), 3, 24);
-    const shotRateAway = clamp(11.7 * (as / ((as + hDef) / 2 || 1)), 2.5, 21);
+    const shotRateHome = clamp(14.5 * (hs / ((hs + aDef) / 2 || 1)), 3, 17);
+    const shotRateAway = clamp(11.7 * (as / ((as + hDef) / 2 || 1)), 2.5, 15);
     const shotsHome = poissonish(shotRateHome);
     const shotsAway = poissonish(shotRateAway);
     function resolveShot(attackXI, defendXI, teamId) {
@@ -2216,8 +2216,8 @@ function simulateSegment(homeClub, awayClub, homeXI, awayXI, fromMin, toMin) {
     // whoever happened to have the best shooting stat afterward. Exactly matching the constants
     // validated in simulateFullMatch, so the match you're watching and every background match
     // in the league play out to the same real logic, not two different approximations.
-    const shotRateHome = clamp(14.5 * (hs / ((hs + aDef) / 2 || 1)), 3, 24) * span;
-    const shotRateAway = clamp(11.7 * (as / ((as + hDef) / 2 || 1)), 2.5, 21) * span;
+    const shotRateHome = clamp(14.5 * (hs / ((hs + aDef) / 2 || 1)), 3, 17) * span;
+    const shotRateAway = clamp(11.7 * (as / ((as + hDef) / 2 || 1)), 2.5, 15) * span;
     const shotsHome = poissonish(shotRateHome);
     const shotsAway = poissonish(shotRateAway);
     function resolveShot(attackXI, defendXI, teamId) {
