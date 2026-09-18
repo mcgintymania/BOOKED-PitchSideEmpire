@@ -329,11 +329,67 @@ table{border-collapse:collapse;}
 .underline{text-decoration-line:underline;}
 .pitch-aspect{padding-bottom:135%;}
 @media (min-width: 1024px){
-  .pitch-aspect{padding-bottom:80%;}
+  .pitch-aspect{padding-bottom:105%;}
 }
 .w-6{width:1.5rem;}
 .h-6{height:1.5rem;}
 .disabled\:opacity-30:disabled{opacity:0.3;}
+.border-l{border-left-width:1px;}
+.mt-auto{margin-top:auto;}
+@media (min-width: 1024px){
+  .lg\:hidden{display:none;}
+  .lg\:flex{display:flex;}
+  .lg\:pr-\[232px\]{padding-right:232px;}
+}
+@media (min-width: 1024px){
+  .lg\:grid{display:grid;}
+  .lg\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .lg\:gap-3{gap:0.75rem;}
+  .lg\:items-start{align-items:flex-start;}
+  .lg\:block{display:block;}
+}
+@media (min-width: 1024px){
+  .lg\:gap-2{gap:0.5rem;}
+  .lg\:grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .lg\:space-y-0 > * + *{margin-top:0px;}
+}
+@media (min-width: 1024px){
+  .lg\:gap-4{gap:1rem;}
+  .lg\:grid-cols-\[420px_1fr\]{grid-template-columns:420px 1fr;}
+}
+.match-pitch-height{height:300px;}
+@media (min-width: 1024px){
+  .match-pitch-height{height:400px;}
+}
+@media (min-width: 1024px){
+  .lg\:max-w-none{max-width:none;}
+  .lg\:col-start-1{grid-column-start:1;}
+  .lg\:col-start-2{grid-column-start:2;}
+  .lg\:row-start-1{grid-row-start:1;}
+  .lg\:row-start-2{grid-row-start:2;}
+  .lg\:row-span-2{grid-row:span 2 / span 2;}
+}
+@media (min-width: 1024px){
+  .lg\:max-w-\[1600px\]{max-width:1600px;}
+  .lg\:grid-cols-\[380px_1fr\]{grid-template-columns:380px 1fr;}
+}
+@media (min-width: 1024px){
+  .lg\:flex-1{flex:1 1 0%;}
+  .lg\:flex-shrink-0{flex-shrink:0;}
+  .lg\:gap-16{gap:4rem;}
+  .lg\:items-center{align-items:center;}
+  .lg\:max-w-4xl{max-width:56rem;}
+  .lg\:mb-0{margin-bottom:0px;}
+  .lg\:mx-0{margin-left:0px;margin-right:0px;}
+  .lg\:text-left{text-align:left;}
+}
+@media (min-width: 1024px){
+  .text-\[7px\]{font-size:10px;}
+  .text-\[8px\]{font-size:11px;}
+  .text-\[9px\]{font-size:12px;}
+  .text-\[10px\]{font-size:13px;}
+  .text-\[11px\]{font-size:14px;}
+}
 </style>
 </head>
 <body>
@@ -1550,7 +1606,7 @@ function initDivisionCups(clubsList) {
     const obj = {};
     CUP_DEFS.forEach((def) => {
         const ids = clubsList.filter((c) => c.divisionId === def.divisionId).map((c) => c.id);
-        obj[def.key] = { rounds: [generateCupRound(ids, def.key)], champion: null, top4: null };
+        obj[def.key] = { rounds: [generateCupRound(ids, def.key)], champion: null, top4: null, lastRoundWeek: 1 };
     });
     return obj;
 }
@@ -2578,6 +2634,11 @@ function TabButton({ active, onClick, icon, label }) {
         React.createElement(Ico, { e: icon, size: 19 }),
         React.createElement("span", { className: "text-[9px] font-bold tracking-wide" }, label.toUpperCase())));
 }
+function SidebarTabButton({ active, onClick, icon, label }) {
+    return (React.createElement("button", { onClick: onClick, className: "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left", style: { backgroundColor: active ? C.green : "transparent", color: active ? "#FFFFFF" : C.sub } },
+        React.createElement(Ico, { e: icon, size: 19, color: active ? "#FFFFFF" : C.sub }),
+        React.createElement("span", { className: "text-xs font-bold tracking-wide" }, label.toUpperCase())));
+}
 function matchLogEntry(season, week, clubId, opponentId, goals, assists, rating, isCup, onLoan) {
     return { season, week, clubId, opponentId, goals, assists, rating: Math.round(rating * 10) / 10, isCup: !!isCup, onLoan: !!onLoan };
 }
@@ -2865,7 +2926,7 @@ function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosi
         }
     });
     return (React.createElement("div", { className: "rounded-lg overflow-hidden border", style: { backgroundColor: "#2E7D4F", borderColor: C.border } },
-        React.createElement("div", { className: "relative", style: { height: 300 } },
+        React.createElement("div", { className: "relative match-pitch-height" },
             React.createElement("div", { className: "absolute inset-y-0", style: { left: "50%", borderLeft: "2px solid rgba(255,255,255,0.35)" } }),
             React.createElement("div", { style: { position: "absolute", top: "50%", left: "50%", width: 60, height: 60, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.35)", transform: "translate(-50%,-50%)" } }),
             React.createElement("div", { className: "absolute", style: { left: 2, top: "28%", width: 8, height: "44%", border: "2px solid rgba(255,255,255,0.35)", borderLeft: "none" } }),
@@ -3016,7 +3077,7 @@ function Pitch({ club, squadPlayers, onAssign, onSetInstruction }) {
     const usedIds = new Set(Object.values(lineup).filter(Boolean));
     const activeSlot = slots.find((s) => s.id === openSlot);
     return (React.createElement("div", null,
-        React.createElement("div", { className: "relative w-full max-w-md mx-auto rounded-lg overflow-hidden border pitch-aspect", style: { backgroundColor: "#2E7D4F", borderColor: C.border } },
+        React.createElement("div", { className: "relative w-full max-w-md lg:max-w-none mx-auto rounded-lg overflow-hidden border pitch-aspect", style: { backgroundColor: "#2E7D4F", borderColor: C.border } },
             React.createElement("div", { className: "absolute inset-2 border-2 rounded", style: { borderColor: "rgba(255,255,255,0.4)" } }),
             React.createElement("div", { className: "absolute left-2 right-2 border-t-2", style: { top: "50%", borderColor: "rgba(255,255,255,0.4)" } }),
             React.createElement("div", { className: "absolute rounded-full border-2", style: { borderColor: "rgba(255,255,255,0.4)", width: "26%", paddingBottom: "26%", left: "37%", top: "42%" } }),
@@ -3744,12 +3805,23 @@ function App() {
             setMatchViewTab("action");
             // Simulate every other real match happening this week right now, so the table/results
             // are already current while you're watching yours rather than waiting until you
-            // advance the week — but a friendly isn't a real fixture at all, so it must NOT touch
-            // this week's actual matches. Doing so previously auto-simulated the human's own
-            // pending league game in the background the moment a friendly kicked off, silently
-            // costing them the chance to play it live themselves.
+            // advance the week. A friendly isn't a real fixture at all, so it must not touch this
+            // week's actual matches. And critically — whatever you're ABOUT to play (a cup tie, a
+            // friendly, a playoff leg) is never itself your real league fixture for the week, so
+            // excluding only "the thing you're currently opening" isn't enough on its own: if you
+            // also have a genuine league match scheduled this same week, it needs protecting too,
+            // or it gets silently auto-simulated the moment you kick off anything else. This was a
+            // real, pre-existing gap — not something friendlies introduced — that simply never
+            // surfaced until cup ties started landing in the same week as league fixtures often
+            // enough to actually collide with it.
             if (!isFriendly) {
-                const afterLeague = simulateOtherLeagueFixtures(world.clubs, world.players, isCup ? undefined : fixtureOrTie.id);
+                // Protect every controlled club's own pending league fixture this week, not just
+                // the one belonging to whoever's opening this particular match — a two-player game
+                // can have two separate real fixtures at risk at once.
+                const protectedIds = controlled.map((cid) => fixtures.find((f) => f.week === week && !f.played && (f.homeId === cid || f.awayId === cid))?.id).filter(Boolean);
+                if (!isCup && !protectedIds.includes(fixtureOrTie.id))
+                    protectedIds.push(fixtureOrTie.id);
+                const afterLeague = simulateOtherLeagueFixtures(world.clubs, world.players, protectedIds);
                 const afterCup = simulateOtherCupTies(afterLeague.clubs, afterLeague.players);
                 setWorld((w) => ({ ...w, clubs: afterCup.clubs, players: afterCup.players }));
             }
@@ -4158,7 +4230,7 @@ function App() {
                 const allReady = CUP_DEFS.every((def) => next[def.key]?.top4);
                 if (allReady) {
                     const entrants = CUP_DEFS.flatMap((def) => next[def.key].top4);
-                    setEmpireCup({ rounds: [generateCupRound(entrants, "empire")], champion: null, started: true });
+                    setEmpireCup({ rounds: [generateCupRound(entrants, "empire")], champion: null, started: true, lastRoundWeek: week });
                     setNews((n) => [{ id: uid("n"), text: `⚔️ Empire Cup draw made — all five division cups have reached their final stretch, and ${entrants.length} clubs go into the hat.`, clubIds: [], week, season }, ...n].slice(0, 150));
                 }
                 return next;
@@ -4200,6 +4272,12 @@ function App() {
         return clubs;
     }
     function advanceAllCupRoundsIfReady() {
+        // A real gap between rounds — 4 weeks, roughly matching how an actual cup competition
+        // paces itself across a season — rather than a new round being drawn the instant the
+        // previous one finishes. Without this, a modest bracket collapses from first round to
+        // champion in just a handful of weeks, and every division cup finishing early drags the
+        // Empire Cup into starting far sooner than it should too.
+        const ROUND_GAP_WEEKS = 4;
         CUP_DEFS.forEach((def) => {
             const cup = divisionCups[def.key];
             if (!cup || cup.champion || cup.rounds.length === 0)
@@ -4207,21 +4285,23 @@ function App() {
             const last = cup.rounds[cup.rounds.length - 1];
             if (!last.ties.every((t) => t.played))
                 return;
+            if (week < (cup.lastRoundWeek || 0) + ROUND_GAP_WEEKS)
+                return;
             const winners = last.ties.map((t) => t.winnerId);
             if (last.byeId)
                 winners.push(last.byeId);
             if (winners.length <= 1)
                 return;
-            setDivisionCups((cups) => ({ ...cups, [def.key]: { ...cups[def.key], rounds: [...cups[def.key].rounds, generateCupRound(winners, def.key)] } }));
+            setDivisionCups((cups) => ({ ...cups, [def.key]: { ...cups[def.key], rounds: [...cups[def.key].rounds, generateCupRound(winners, def.key)], lastRoundWeek: week } }));
         });
-        if (empireCup.started && !empireCup.champion && empireCup.rounds.length) {
+        if (empireCup.started && !empireCup.champion && empireCup.rounds.length && week >= (empireCup.lastRoundWeek || 0) + ROUND_GAP_WEEKS) {
             const last = empireCup.rounds[empireCup.rounds.length - 1];
             if (last.ties.every((t) => t.played)) {
                 const winners = last.ties.map((t) => t.winnerId);
                 if (last.byeId)
                     winners.push(last.byeId);
                 if (winners.length > 1) {
-                    setEmpireCup((c) => ({ ...c, rounds: [...c.rounds, generateCupRound(winners, "empire")] }));
+                    setEmpireCup((c) => ({ ...c, rounds: [...c.rounds, generateCupRound(winners, "empire")], lastRoundWeek: week }));
                 }
             }
         }
@@ -4537,8 +4617,9 @@ function App() {
         setFormationPanel(null);
     }
     /* ---------- background simulation for AI fixtures / cup ties ---------- */
-    function simulateOtherLeagueFixtures(clubsIn, playersIn, excludeFixtureId) {
-        const toSim = fixtures.filter((f) => f.week === week && !f.played && f.id !== excludeFixtureId);
+    function simulateOtherLeagueFixtures(clubsIn, playersIn, excludeFixtureIds) {
+        const excludeSet = new Set(Array.isArray(excludeFixtureIds) ? excludeFixtureIds : [excludeFixtureIds]);
+        const toSim = fixtures.filter((f) => f.week === week && !f.played && !excludeSet.has(f.id));
         if (toSim.length === 0)
             return { clubs: clubsIn, players: playersIn };
         let clubs = [...clubsIn];
@@ -7167,7 +7248,7 @@ function App() {
     if (showSlotPicker) {
         const sorted = [...saveSlots].sort((a, b) => b.savedAt - a.savedAt);
         return (React.createElement("div", { className: "min-h-full w-full p-4 sm:p-8", style: pageBg },
-            React.createElement("div", { className: "max-w-lg mx-auto" },
+            React.createElement("div", { className: "max-w-lg lg:max-w-2xl mx-auto" },
                 React.createElement("button", { onClick: () => { setShowSlotPicker(false); setConfirmingDeleteSlot(null); setConfirmingLoadSlot(null); }, className: "flex items-center gap-1.5 text-xs font-bold mb-3", style: { color: C.sub } },
                     React.createElement(Ico, { e: "\u2190", size: 14 }),
                     " Back"),
@@ -7246,24 +7327,25 @@ function App() {
     const guideContent = guideContentFn(false);
     if (phase === "home") {
         return (React.createElement("div", { className: "min-h-full w-full p-4 sm:p-8 flex items-center justify-center", style: { backgroundColor: "#0A0A0A", minHeight: "100vh", color: C.text } },
-            React.createElement("div", { className: "max-w-md lg:max-w-xl w-full" },
-                React.createElement("div", { className: "text-center mb-12" },
-                    React.createElement("img", { src: LOGO_DATA_URI, alt: "Booked! Pitch Side Empire", className: "mx-auto w-[220px] h-[220px] lg:w-[300px] lg:h-[300px]", style: { objectFit: "contain" } })),
-                React.createElement("div", { className: "text-center space-y-7 lg:space-y-9" },
-                    React.createElement("button", { onClick: () => setPhase("setup"), className: "block w-full" },
-                        React.createElement("span", { className: "block text-2xl lg:text-4xl font-black tracking-wide pse-display", style: { color: C.amber } }, "New Career"),
-                        React.createElement("span", { className: "block text-[10px] lg:text-sm mt-0.5 lg:mt-1.5", style: { color: "#8A9A8D" } }, "Start a new career, in charge of a club or unemployed")),
-                    React.createElement("button", { onClick: () => setShowSlotPicker(true), className: "block w-full" },
-                        React.createElement("span", { className: "block text-xl lg:text-3xl font-bold", style: { color: "#FFFFFF" } }, "Load Career"),
-                        React.createElement("span", { className: "block text-[10px] lg:text-sm mt-0.5 lg:mt-1.5", style: { color: "#8A9A8D" } }, saveSlots.length ? `${saveSlots.length} saved career${saveSlots.length === 1 ? "" : "s"}` : "No saved careers yet")),
-                    React.createElement("button", { onClick: () => setPhase("guide"), className: "block w-full" },
-                        React.createElement("span", { className: "block text-xl lg:text-3xl font-bold", style: { color: "#FFFFFF" } }, "How to Play"),
-                        React.createElement("span", { className: "block text-[10px] lg:text-sm mt-0.5 lg:mt-1.5", style: { color: "#8A9A8D" } }, "A full walkthrough \u2014 no save needed to read it")),
-                    React.createElement("button", { onClick: () => setPhase("editor"), className: "block w-full" },
-                        React.createElement("span", { className: "block text-xl lg:text-3xl font-bold", style: { color: "#FFFFFF" } }, "Editor"),
-                        React.createElement("span", { className: "block text-[10px] lg:text-sm mt-0.5 lg:mt-1.5", style: { color: "#8A9A8D" } }, "Edit any player or club in the database \u2014 changes apply to every new game")),
-                    React.createElement("button", { onClick: () => setPhase("settings"), className: "block w-full" },
-                        React.createElement("span", { className: "block text-xl lg:text-3xl font-bold", style: { color: "#FFFFFF" } }, "Settings"))),
+            React.createElement("div", { className: "max-w-md lg:max-w-4xl w-full" },
+                React.createElement("div", { className: "lg:flex lg:items-center lg:gap-16" },
+                    React.createElement("div", { className: "text-center lg:text-left mb-12 lg:mb-0 lg:flex-shrink-0" },
+                        React.createElement("img", { src: LOGO_DATA_URI, alt: "Booked! Pitch Side Empire", className: "mx-auto lg:mx-0 w-[220px] h-[220px] lg:w-[300px] lg:h-[300px]", style: { objectFit: "contain" } })),
+                    React.createElement("div", { className: "text-center lg:text-left space-y-7 lg:space-y-9 lg:flex-1" },
+                        React.createElement("button", { onClick: () => setPhase("setup"), className: "block w-full" },
+                            React.createElement("span", { className: "block text-2xl lg:text-4xl font-black tracking-wide pse-display", style: { color: C.amber } }, "New Career"),
+                            React.createElement("span", { className: "block text-[10px] lg:text-sm mt-0.5 lg:mt-1.5", style: { color: "#8A9A8D" } }, "Start a new career, in charge of a club or unemployed")),
+                        React.createElement("button", { onClick: () => setShowSlotPicker(true), className: "block w-full" },
+                            React.createElement("span", { className: "block text-xl lg:text-3xl font-bold", style: { color: "#FFFFFF" } }, "Load Career"),
+                            React.createElement("span", { className: "block text-[10px] lg:text-sm mt-0.5 lg:mt-1.5", style: { color: "#8A9A8D" } }, saveSlots.length ? `${saveSlots.length} saved career${saveSlots.length === 1 ? "" : "s"}` : "No saved careers yet")),
+                        React.createElement("button", { onClick: () => setPhase("guide"), className: "block w-full" },
+                            React.createElement("span", { className: "block text-xl lg:text-3xl font-bold", style: { color: "#FFFFFF" } }, "How to Play"),
+                            React.createElement("span", { className: "block text-[10px] lg:text-sm mt-0.5 lg:mt-1.5", style: { color: "#8A9A8D" } }, "A full walkthrough \u2014 no save needed to read it")),
+                        React.createElement("button", { onClick: () => setPhase("editor"), className: "block w-full" },
+                            React.createElement("span", { className: "block text-xl lg:text-3xl font-bold", style: { color: "#FFFFFF" } }, "Editor"),
+                            React.createElement("span", { className: "block text-[10px] lg:text-sm mt-0.5 lg:mt-1.5", style: { color: "#8A9A8D" } }, "Edit any player or club in the database \u2014 changes apply to every new game")),
+                        React.createElement("button", { onClick: () => setPhase("settings"), className: "block w-full" },
+                            React.createElement("span", { className: "block text-xl lg:text-3xl font-bold", style: { color: "#FFFFFF" } }, "Settings")))),
                 React.createElement("div", { className: "text-center mt-10 text-[10px] lg:text-xs", style: { color: "#6B7A6E" } },
                     STATIC_WORLD_DATA.clubs.length,
                     " real clubs \u00B7 ",
@@ -7543,7 +7625,7 @@ function App() {
                     " \u00B7 ",
                     goalPopup.minute,
                     "'"))),
-            React.createElement("div", { className: "max-w-lg mx-auto" },
+            React.createElement("div", { className: "max-w-lg lg:max-w-[1600px] mx-auto" },
                 React.createElement("div", { className: "text-center text-[10px] tracking-[0.3em] font-bold mb-1", style: { color: C.amber } },
                     m.isCup ? cupNameFor(m.cupKey).toUpperCase() : `WEEK ${week}`,
                     " MATCHDAY"),
@@ -7637,18 +7719,19 @@ function App() {
                             usedThisHalf ? "(used this half)" : "— one per half, uncertain"),
                         usedThisHalf && m[outcomeKey] && React.createElement("div", { className: "text-[10px] text-center mt-1", style: { color: C.sub } }, m[outcomeKey])));
                 })(),
-                React.createElement("div", { className: "flex gap-1.5 mb-3" }, [["action", "📣", "Action"], ["pitch", "🟩", "Pitch"], ["stats", "📊", "Stats"], ["ratings", "⭐", "Ratings"]].map(([key, icon, label]) => (React.createElement("button", { key: key, onClick: () => setMatchViewTab(key), className: "flex-1 py-2 rounded-lg text-[10px] font-bold border flex flex-col items-center gap-0.5", style: { borderColor: matchViewTab === key ? C.green : C.border, backgroundColor: matchViewTab === key ? C.cardAlt : C.card, color: matchViewTab === key ? C.greenDark : C.sub } },
+                React.createElement("div", { className: "flex gap-1.5 mb-3" }, [["action", "📣", "Action"], ["pitch", "🟩", "Pitch"], ["stats", "📊", "Stats"], ["ratings", "⭐", "Ratings"]].map(([key, icon, label]) => (React.createElement("button", { key: key, onClick: () => setMatchViewTab(key), className: ((key === "action" || key === "pitch") ? "lg:hidden " : "") + "flex-1 py-2 rounded-lg text-[10px] font-bold border flex flex-col items-center gap-0.5", style: { borderColor: matchViewTab === key ? C.green : C.border, backgroundColor: matchViewTab === key ? C.cardAlt : C.card, color: matchViewTab === key ? C.greenDark : C.sub } },
                     React.createElement("span", { style: { fontSize: 14 } }, icon),
                     label)))),
-                matchViewTab === "action" && (React.createElement("div", { className: "mb-4 rounded-lg border overflow-hidden", style: { borderColor: C.border } },
-                    React.createElement("div", { className: "text-[10px] tracking-widest font-bold px-3 py-2", style: { backgroundColor: C.cardAlt, color: C.green } }, "LIVE COMMENTARY"),
-                    React.createElement("div", { className: "max-h-72 overflow-y-auto" }, (m.commentary || []).length === 0 ? (React.createElement("div", { className: "text-xs italic text-center py-4", style: { color: C.sub } }, "Kick off to see it unfold.")) : (m.commentary || []).map((c, i) => (React.createElement("div", { key: i, className: "px-3 py-2 text-xs border-t", style: { borderColor: C.cardAlt, backgroundColor: c.important ? C.cardAlt : "transparent", fontWeight: c.important ? "bold" : "normal" } },
-                        c.minute != null && React.createElement("span", { className: "font-bold mr-1.5", style: { color: C.sub } },
-                            c.minute,
-                            "'"),
-                        c.text)))))),
-                matchViewTab === "pitch" && (React.createElement("div", { className: "mb-4" },
-                    React.createElement(MatchPitchView, { homeXI: m.homeXI, awayXI: m.awayXI, homeFormation: m.homeFormation, awayFormation: m.awayFormation, ballPosition: m.ballPosition, homeName: home.name, awayName: away.name, secondHalf: m.minute >= 45, minute: m.minute, reduceMotion: reducePitchMotion, commentary: m.commentary, homeKit: kitFor(home, true), awayKit: kitFor(away, false) }))),
+                React.createElement("div", { className: "lg:grid lg:grid-cols-2 lg:gap-3 lg:items-start" },
+                    React.createElement("div", { className: (matchViewTab === "action" ? "" : "hidden lg:block") + " mb-4 rounded-lg border overflow-hidden", style: { borderColor: C.border } },
+                        React.createElement("div", { className: "text-[10px] tracking-widest font-bold px-3 py-2", style: { backgroundColor: C.cardAlt, color: C.green } }, "LIVE COMMENTARY"),
+                        React.createElement("div", { className: "max-h-72 overflow-y-auto" }, (m.commentary || []).length === 0 ? (React.createElement("div", { className: "text-xs italic text-center py-4", style: { color: C.sub } }, "Kick off to see it unfold.")) : (m.commentary || []).map((c, i) => (React.createElement("div", { key: i, className: "px-3 py-2 text-xs border-t", style: { borderColor: C.cardAlt, backgroundColor: c.important ? C.cardAlt : "transparent", fontWeight: c.important ? "bold" : "normal" } },
+                            c.minute != null && React.createElement("span", { className: "font-bold mr-1.5", style: { color: C.sub } },
+                                c.minute,
+                                "'"),
+                            c.text))))),
+                    React.createElement("div", { className: (matchViewTab === "pitch" ? "" : "hidden lg:block") + " mb-4" },
+                        React.createElement(MatchPitchView, { homeXI: m.homeXI, awayXI: m.awayXI, homeFormation: m.homeFormation, awayFormation: m.awayFormation, ballPosition: m.ballPosition, homeName: home.name, awayName: away.name, secondHalf: m.minute >= 45, minute: m.minute, reduceMotion: reducePitchMotion, commentary: m.commentary, homeKit: kitFor(home, true), awayKit: kitFor(away, false) }))),
                 matchViewTab === "stats" && (() => {
                     const totalPoss = (m.homePossession || 0) + (m.awayPossession || 0);
                     const homePct = totalPoss > 0 ? Math.round(((m.homePossession || 0) / totalPoss) * 100) : 50;
@@ -7839,7 +7922,7 @@ function App() {
             return null;
         }
         return (React.createElement("div", { className: "min-h-full w-full p-4 sm:p-8", style: pageBg },
-            React.createElement("div", { className: "max-w-lg mx-auto" },
+            React.createElement("div", { className: "max-w-lg lg:max-w-2xl mx-auto" },
                 React.createElement("button", { onClick: () => { setViewingPlayerId(null); setRenamingId(null); setConfirmingRelease(false); setConfirmingExtension(false); setExtensionResult(null); }, className: "flex items-center gap-1.5 text-xs font-bold mb-3", style: { color: C.sub } },
                     React.createElement(Ico, { e: "\u2190", size: 14 }),
                     " Back"),
@@ -8356,8 +8439,8 @@ function App() {
             React.createElement("span", { style: { fontSize: 26 } }, item.icon),
             React.createElement("span", { className: "text-xs font-bold" }, item.label))))));
     }
-    return (React.createElement("div", { className: "min-h-full w-full", style: pageBg },
-        React.createElement("div", { className: "max-w-4xl lg:max-w-6xl mx-auto px-3 sm:px-6 pt-4 pb-2" },
+    return (React.createElement("div", { className: "min-h-full w-full lg:pr-[232px]", style: pageBg },
+        React.createElement("div", { className: "max-w-4xl lg:max-w-[1600px] mx-auto px-3 sm:px-6 pt-4 pb-2" },
             React.createElement("div", { className: "flex items-center justify-between flex-wrap gap-2 mb-2" },
                 React.createElement("div", { className: "flex items-center gap-2 min-w-0" },
                     activeClub ? React.createElement(ClubCrest, { club: activeClub, size: 28 }) : React.createElement("span", { style: { fontSize: 22 } }, "\uD83D\uDC40"),
@@ -8387,7 +8470,7 @@ function App() {
             })(),
             autosaveFailed && (React.createElement("div", { className: "w-full rounded-lg px-3 py-2 text-xs font-bold mt-2 border", style: { backgroundColor: "rgba(200,60,60,0.1)", borderColor: C.red, color: C.red } }, "\u26A0\uFE0F Autosave failed \u2014 your browser's storage is likely full. Go to Manager \u2192 Save & Load and try Save now, or free up space by deleting an old save you no longer need from Load Game.")),
             isDeadlineDay() && isTransferWindowOpen() && (React.createElement("div", { className: "w-full rounded-lg px-3 py-2 text-xs font-bold mt-2 border flex items-center gap-1.5", style: { backgroundColor: "rgba(184,57,14,0.1)", borderColor: "#B8390E", color: "#B8390E" } }, "\uD83D\uDD25 DEADLINE DAY \u2014 the transfer window shuts tonight. Last chance to get business done."))),
-        React.createElement("div", { className: "max-w-4xl lg:max-w-6xl mx-auto px-3 sm:px-6 pb-24 pt-2" },
+        React.createElement("div", { className: "max-w-4xl lg:max-w-[1600px] mx-auto px-3 sm:px-6 pb-24 pt-2" },
             tab === "play" && !activeClub && world && (React.createElement("div", null,
                 React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, "CURRENTLY UNEMPLOYED"),
                 React.createElement("div", { className: "rounded-lg p-4 mb-4 border text-center", style: { backgroundColor: C.card, borderColor: C.border } },
@@ -8456,68 +8539,6 @@ function App() {
                             " this week."),
                         !allControlledDoneThisWeek && React.createElement("div", { className: "text-[10px] text-center", style: { color: C.sub } }, "Your other club still has a match to play this week first.")))));
                 })()),
-                React.createElement("div", { className: "rounded-lg p-4 mb-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
-                    React.createElement("div", { className: "flex items-center justify-between mb-1" },
-                        React.createElement("div", { className: "text-[11px] tracking-widest font-bold", style: { color: C.green } }, "\u26BD ARRANGE A FRIENDLY"),
-                        React.createElement("button", { onClick: () => setShowFriendlyPicker((s) => !s), className: "text-[10px] font-bold", style: { color: C.amber } }, showFriendlyPicker ? "Cancel" : "Pick an opponent")),
-                    React.createElement("div", { className: "text-[10px]", style: { color: C.sub } }, "Test a formation or give a fringe player minutes with zero real consequences \u2014 no league table, no cup progress, no gate money either way."),
-                    showFriendlyPicker && (React.createElement("div", { className: "mt-2" },
-                        React.createElement("input", { value: friendlySearch, onChange: (e) => setFriendlySearch(e.target.value), placeholder: "Search for any club...", className: "w-full border rounded-lg px-2 py-1.5 text-xs mb-2", style: selStyle }),
-                        React.createElement("div", { className: "space-y-1 max-h-48 overflow-y-auto" }, world.clubs.filter((c) => c.id !== activeClubId && c.name.toLowerCase().includes(friendlySearch.toLowerCase())).slice(0, 20).map((c) => (React.createElement("button", { key: c.id, onClick: () => { setShowFriendlyPicker(false); setFriendlySearch(""); openFriendly(c.id); }, className: "w-full flex items-center justify-between text-xs px-2 py-1.5 rounded border text-left", style: { borderColor: C.border } },
-                            React.createElement("span", { className: "font-bold" }, c.name),
-                            React.createElement("span", { style: { color: C.sub } }, DIVISIONS_SEED.find((d) => d.id === c.divisionId)?.name)))))))),
-                React.createElement("div", { className: "rounded-lg p-4 mb-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
-                    React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, "FORMATION & TACTICS"),
-                    React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.sub } }, activeClub.formation ? "FORMATION (changing this resets your lineup)" : "FORMATION — CHOOSE ONE TO GET STARTED"),
-                    React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-3" }, FORMATION_KEYS.map((f) => React.createElement(Pill, { key: f, active: activeClub.formation === f, onClick: () => setFormation(activeClubId, f) }, f))),
-                    React.createElement("div", { className: "grid grid-cols-2 gap-3 mb-2" },
-                        React.createElement("div", null,
-                            React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.sub } }, "TEMPO"),
-                            React.createElement("div", { className: "flex flex-wrap gap-1.5" }, TEMPO_OPTIONS.map((t) => React.createElement(Pill, { key: t, active: (activeClub.tempo || "balanced") === t, onClick: () => setTempo(activeClubId, t) }, TEMPO_LABELS[t])))),
-                        React.createElement("div", null,
-                            React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.sub } }, "PRESSING"),
-                            React.createElement("div", { className: "flex flex-wrap gap-1.5" }, PRESS_OPTIONS.map((p) => React.createElement(Pill, { key: p, active: (activeClub.pressing || "medium") === p, onClick: () => setPressing(activeClubId, p) }, PRESS_LABELS[p]))))),
-                    React.createElement("div", { className: "text-[10px]", style: { color: C.sub } }, "Attacking tempo trades defensive solidity for goal threat; high pressing tires the opposition faster (and your own players too) and draws more bookings. All of this can also be changed mid-match."),
-                    React.createElement("div", { className: "mt-4 pt-3 border-t", style: { borderColor: C.cardAlt } },
-                        React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.sub } }, "SET-PIECE TAKERS"),
-                        React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "A genuinely good, practised taker gives your side a small real edge whenever they're on the pitch."),
-                        React.createElement("div", { className: "grid grid-cols-3 gap-2" }, [["penalty", "Penalties"], ["freeKick", "Free Kicks"], ["corner", "Corners"]].map(([role, label]) => (React.createElement("div", { key: role },
-                            React.createElement("div", { className: "text-[9px] font-bold mb-1", style: { color: C.sub } }, label),
-                            React.createElement("select", { value: activeClub.setPieceTakers?.[role] || "", onChange: (e) => setSetPieceTaker(activeClubId, role, e.target.value || null), className: "w-full border rounded px-1.5 py-1.5 text-[10px]", style: selStyle },
-                                React.createElement("option", { value: "" }, "\u2014 None \u2014"),
-                                playersOfClub(activeClubId).sort((a, b) => (role === "corner" ? b.passing - a.passing : b.shooting - a.shooting)).map((p) => React.createElement("option", { key: p.id, value: p.id }, p.name))))))))),
-                React.createElement("div", { className: "rounded-lg p-4 mb-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
-                    React.createElement("div", { className: "flex items-center justify-between mb-2" },
-                        React.createElement("div", { className: "text-[11px] tracking-widest font-bold", style: { color: C.green } }, "LINEUP"),
-                        React.createElement("span", { className: "text-sm font-black", style: { color: xiAverageOverall(activeClub, playersOfClub(activeClubId)) >= 70 ? C.green : C.text } },
-                            xiAverageOverall(activeClub, playersOfClub(activeClubId)),
-                            " OVR AVG")),
-                    React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Tap a position on the pitch to assign a player. This lineup carries over to every match until you change it."),
-                    React.createElement(Pitch, { club: activeClub, squadPlayers: playersOfClub(activeClubId), onAssign: (slotId, playerId) => assignSlot(activeClubId, slotId, playerId), onSetInstruction: (slotId, key) => setSlotInstruction(activeClubId, slotId, key) })),
-                (() => {
-                    const xi = xiFromLineup(activeClub, playersOfClub(activeClubId)).filter(Boolean);
-                    const bench = benchFor(playersOfClub(activeClubId), xi, activeClub.subPriority);
-                    if (!bench.length)
-                        return null;
-                    return (React.createElement("div", { className: "rounded-lg p-4 mb-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
-                        React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "SUBSTITUTE PRIORITY"),
-                        React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Who you'd actually reach for first, not just whoever rates highest \u2014 reorder to match how you'd really use your bench. Anyone injured or suspended is left off until they're available again."),
-                        React.createElement("div", { className: "space-y-1" }, bench.map((p, i) => (React.createElement("div", { key: p.id, className: "flex items-center justify-between gap-2 text-xs px-2.5 py-2 rounded border", style: { borderColor: C.border } },
-                            React.createElement("span", null,
-                                React.createElement("span", { className: "font-bold", style: { color: C.sub } },
-                                    i + 1,
-                                    "."),
-                                " ",
-                                React.createElement("span", { className: "font-bold" }, p.name),
-                                " ",
-                                React.createElement("span", { style: { color: C.sub } },
-                                    p.position,
-                                    " \u00B7 OVR ",
-                                    p.overall)),
-                            React.createElement("span", { className: "flex gap-1 flex-shrink-0" },
-                                React.createElement("button", { onClick: () => moveSubPriority(activeClubId, p.id, -1), disabled: i === 0, className: "w-6 h-6 rounded border text-xs font-bold disabled:opacity-30", style: { borderColor: C.border } }, "\u2191"),
-                                React.createElement("button", { onClick: () => moveSubPriority(activeClubId, p.id, 1), disabled: i === bench.length - 1, className: "w-6 h-6 rounded border text-xs font-bold disabled:opacity-30", style: { borderColor: C.border } }, "\u2193"))))))));
-                })(),
                 (() => {
                     const upcoming = (myWeekFixture && !myWeekFixture.played) ? myWeekFixture : (myCupTie || null);
                     if (!upcoming)
@@ -8556,7 +8577,70 @@ function App() {
                         React.createElement("div", { className: "text-xs" },
                             "Recent form: ",
                             formLetters.length ? formLetters.map((f, i) => (React.createElement("span", { key: i, className: "inline-block w-4 h-4 rounded-full text-center text-[9px] font-bold mr-1", style: { backgroundColor: f === "W" ? C.green : f === "L" ? C.red : C.amber, color: "#FFFFFF" } }, f))) : React.createElement("span", { style: { color: C.sub } }, "No matches yet"))));
-                })())),
+                })(),
+                React.createElement("div", { className: "lg:grid lg:grid-cols-[380px_1fr] lg:gap-3 lg:items-start" },
+                    React.createElement("div", { className: "rounded-lg p-4 mb-3 border lg:col-start-1 lg:row-start-1", style: { backgroundColor: C.card, borderColor: C.border } },
+                        React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, "FORMATION & TACTICS"),
+                        React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.sub } }, activeClub.formation ? "FORMATION (changing this resets your lineup)" : "FORMATION — CHOOSE ONE TO GET STARTED"),
+                        React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-3" }, FORMATION_KEYS.map((f) => React.createElement(Pill, { key: f, active: activeClub.formation === f, onClick: () => setFormation(activeClubId, f) }, f))),
+                        React.createElement("div", { className: "grid grid-cols-2 gap-3 mb-2" },
+                            React.createElement("div", null,
+                                React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.sub } }, "TEMPO"),
+                                React.createElement("div", { className: "flex flex-wrap gap-1.5" }, TEMPO_OPTIONS.map((t) => React.createElement(Pill, { key: t, active: (activeClub.tempo || "balanced") === t, onClick: () => setTempo(activeClubId, t) }, TEMPO_LABELS[t])))),
+                            React.createElement("div", null,
+                                React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.sub } }, "PRESSING"),
+                                React.createElement("div", { className: "flex flex-wrap gap-1.5" }, PRESS_OPTIONS.map((p) => React.createElement(Pill, { key: p, active: (activeClub.pressing || "medium") === p, onClick: () => setPressing(activeClubId, p) }, PRESS_LABELS[p]))))),
+                        React.createElement("div", { className: "text-[10px]", style: { color: C.sub } }, "Attacking tempo trades defensive solidity for goal threat; high pressing tires the opposition faster (and your own players too) and draws more bookings. All of this can also be changed mid-match."),
+                        React.createElement("div", { className: "mt-4 pt-3 border-t", style: { borderColor: C.cardAlt } },
+                            React.createElement("div", { className: "text-[10px] font-bold mb-1.5", style: { color: C.sub } }, "SET-PIECE TAKERS"),
+                            React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "A genuinely good, practised taker gives your side a small real edge whenever they're on the pitch."),
+                            React.createElement("div", { className: "grid grid-cols-3 gap-2" }, [["penalty", "Penalties"], ["freeKick", "Free Kicks"], ["corner", "Corners"]].map(([role, label]) => (React.createElement("div", { key: role },
+                                React.createElement("div", { className: "text-[9px] font-bold mb-1", style: { color: C.sub } }, label),
+                                React.createElement("select", { value: activeClub.setPieceTakers?.[role] || "", onChange: (e) => setSetPieceTaker(activeClubId, role, e.target.value || null), className: "w-full border rounded px-1.5 py-1.5 text-[10px]", style: selStyle },
+                                    React.createElement("option", { value: "" }, "\u2014 None \u2014"),
+                                    playersOfClub(activeClubId).sort((a, b) => (role === "corner" ? b.passing - a.passing : b.shooting - a.shooting)).map((p) => React.createElement("option", { key: p.id, value: p.id }, p.name))))))))),
+                    React.createElement("div", { className: "rounded-lg p-4 mb-3 border lg:col-start-2 lg:row-start-1 lg:row-span-2", style: { backgroundColor: C.card, borderColor: C.border } },
+                        React.createElement("div", { className: "flex items-center justify-between mb-2" },
+                            React.createElement("div", { className: "text-[11px] tracking-widest font-bold", style: { color: C.green } }, "LINEUP"),
+                            React.createElement("span", { className: "text-sm font-black", style: { color: xiAverageOverall(activeClub, playersOfClub(activeClubId)) >= 70 ? C.green : C.text } },
+                                xiAverageOverall(activeClub, playersOfClub(activeClubId)),
+                                " OVR AVG")),
+                        React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Tap a position on the pitch to assign a player. This lineup carries over to every match until you change it."),
+                        React.createElement(Pitch, { club: activeClub, squadPlayers: playersOfClub(activeClubId), onAssign: (slotId, playerId) => assignSlot(activeClubId, slotId, playerId), onSetInstruction: (slotId, key) => setSlotInstruction(activeClubId, slotId, key) })),
+                    (() => {
+                        const xi = xiFromLineup(activeClub, playersOfClub(activeClubId)).filter(Boolean);
+                        const bench = benchFor(playersOfClub(activeClubId), xi, activeClub.subPriority);
+                        if (!bench.length)
+                            return null;
+                        return (React.createElement("div", { className: "rounded-lg p-4 mb-3 border lg:col-start-1 lg:row-start-2", style: { backgroundColor: C.card, borderColor: C.border } },
+                            React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-1", style: { color: C.green } }, "SUBSTITUTE PRIORITY"),
+                            React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Who you'd actually reach for first, not just whoever rates highest \u2014 reorder to match how you'd really use your bench. Anyone injured or suspended is left off until they're available again."),
+                            React.createElement("div", { className: "space-y-1" }, bench.map((p, i) => (React.createElement("div", { key: p.id, className: "flex items-center justify-between gap-2 text-xs px-2.5 py-2 rounded border", style: { borderColor: C.border } },
+                                React.createElement("span", null,
+                                    React.createElement("span", { className: "font-bold", style: { color: C.sub } },
+                                        i + 1,
+                                        "."),
+                                    " ",
+                                    React.createElement("span", { className: "font-bold" }, p.name),
+                                    " ",
+                                    React.createElement("span", { style: { color: C.sub } },
+                                        p.position,
+                                        " \u00B7 OVR ",
+                                        p.overall)),
+                                React.createElement("span", { className: "flex gap-1 flex-shrink-0" },
+                                    React.createElement("button", { onClick: () => moveSubPriority(activeClubId, p.id, -1), disabled: i === 0, className: "w-6 h-6 rounded border text-xs font-bold disabled:opacity-30", style: { borderColor: C.border } }, "\u2191"),
+                                    React.createElement("button", { onClick: () => moveSubPriority(activeClubId, p.id, 1), disabled: i === bench.length - 1, className: "w-6 h-6 rounded border text-xs font-bold disabled:opacity-30", style: { borderColor: C.border } }, "\u2193"))))))));
+                    })()),
+                React.createElement("div", { className: "rounded-lg p-4 mb-3 border", style: { backgroundColor: C.card, borderColor: C.border } },
+                    React.createElement("div", { className: "flex items-center justify-between mb-1" },
+                        React.createElement("div", { className: "text-[11px] tracking-widest font-bold", style: { color: C.green } }, "\u26BD ARRANGE A FRIENDLY"),
+                        React.createElement("button", { onClick: () => setShowFriendlyPicker((s) => !s), className: "text-[10px] font-bold", style: { color: C.amber } }, showFriendlyPicker ? "Cancel" : "Pick an opponent")),
+                    React.createElement("div", { className: "text-[10px]", style: { color: C.sub } }, "Test a formation or give a fringe player minutes with zero real consequences \u2014 no league table, no cup progress, no gate money either way."),
+                    showFriendlyPicker && (React.createElement("div", { className: "mt-2" },
+                        React.createElement("input", { value: friendlySearch, onChange: (e) => setFriendlySearch(e.target.value), placeholder: "Search for any club...", className: "w-full border rounded-lg px-2 py-1.5 text-xs mb-2", style: selStyle }),
+                        React.createElement("div", { className: "space-y-1 max-h-48 overflow-y-auto" }, world.clubs.filter((c) => c.id !== activeClubId && c.name.toLowerCase().includes(friendlySearch.toLowerCase())).slice(0, 20).map((c) => (React.createElement("button", { key: c.id, onClick: () => { setShowFriendlyPicker(false); setFriendlySearch(""); openFriendly(c.id); }, className: "w-full flex items-center justify-between text-xs px-2 py-1.5 rounded border text-left", style: { borderColor: C.border } },
+                            React.createElement("span", { className: "font-bold" }, c.name),
+                            React.createElement("span", { style: { color: C.sub } }, DIVISIONS_SEED.find((d) => d.id === c.divisionId)?.name)))))))))),
             tab === "squad" && !activeClub && (React.createElement("div", { className: "rounded-lg p-5 border text-center", style: { backgroundColor: C.card, borderColor: C.border } },
                 React.createElement("div", { className: "text-sm font-bold mb-1" }, "No squad \u2014 you're between jobs"),
                 React.createElement("button", { onClick: () => setTab("play"), className: "mt-2 text-xs font-bold px-3 py-1.5 rounded-lg", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "Browse available jobs"))),
@@ -8654,7 +8738,7 @@ function App() {
                         STAT_KEYS.map((k) => React.createElement("option", { key: k, value: k },
                             "Sort: ",
                             STAT_LABEL[k])))),
-                React.createElement("div", { className: "grid sm:grid-cols-2 gap-2" },
+                React.createElement("div", { className: "grid sm:grid-cols-2 lg:grid-cols-3 gap-2" },
                     squadPlayers.map((p) => (React.createElement("button", { key: p.id, onClick: () => setViewingPlayerId(p.id), className: "rounded-lg p-3 border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
                         React.createElement("div", { className: "font-bold text-sm mb-1", style: { color: C.text } },
                             p.name,
@@ -8868,139 +8952,129 @@ function App() {
                                 " - ",
                                 f.awayGoals) : isNext ? React.createElement("button", { onClick: () => openMatch(f, false), className: "text-[10px] font-bold px-2.5 py-1 rounded", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "PLAY") : React.createElement("span", { className: "text-[10px]", style: { color: C.sub } }, "Upcoming"))));
                 })))),
-            tab === "market" && world && (marketPlayerId ? (() => {
-                const p = world.players.find((pl) => pl.id === marketPlayerId);
-                if (!p)
-                    return React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "That player is no longer available.");
-                const onCooldown = p.transferCooldownUntil && week < p.transferCooldownUntil;
-                return (React.createElement("div", null,
-                    React.createElement("button", { onClick: () => setMarketPlayerId(null), className: "text-xs font-bold mb-3", style: { color: C.sub } }, "\u2190 Back to Transfer Market"),
-                    React.createElement("div", { className: "rounded-lg p-5 border", style: { backgroundColor: C.card, borderColor: C.border } },
-                        React.createElement("div", { className: "text-xl font-bold mb-1" }, p.name),
-                        React.createElement("div", { className: "text-[11px] font-bold mb-3", style: { color: C.green } },
-                            p.position,
-                            " \u00B7 OVR ",
-                            p.overall,
-                            " \u00B7 Age ",
-                            p.age,
-                            p.injuredWeeks > 0 && React.createElement("span", { style: { color: C.red } },
-                                " \u00B7 ",
-                                p.injuryType,
-                                " (",
-                                p.injuredWeeks,
-                                "wk)"),
-                            p.suspendedMatches > 0 && React.createElement("span", { style: { color: C.amber } },
-                                " \u00B7 \uD83D\uDFE5 Suspended (",
-                                p.suspendedMatches,
-                                ")")),
-                        React.createElement("div", { className: "grid grid-cols-2 gap-3 mb-4" }, STAT_KEYS.map((k) => React.createElement(StatBar, { key: k, label: STAT_LABEL[k], value: p[k] }))),
-                        React.createElement("div", { className: "grid grid-cols-4 gap-2 mb-4" },
-                            React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
-                                React.createElement("div", { className: "text-lg font-black" }, p.apps),
-                                React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, "APPS")),
-                            React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
-                                React.createElement("div", { className: "text-lg font-black" }, p.goals),
-                                React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, "GOALS")),
-                            React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
-                                React.createElement("div", { className: "text-lg font-black" }, p.position === "GK" ? p.saves : p.assists),
-                                React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, p.position === "GK" ? "SAVES" : "ASSISTS")),
-                            React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
-                                React.createElement("div", { className: "text-lg font-black" }, formatMoney(p.wage || newSigningWage(p.overall, 1))),
-                                React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, p.clubId ? "WAGE/WK" : "EST. WAGE/WK"))),
-                        React.createElement("div", { className: "text-[10px] mb-4", style: { color: C.sub } },
-                            p.clubId ? `Contracted to ${clubsById[p.clubId]?.name} — ${p.contractWeeks} weeks remaining` : "Free agent",
-                            " \u00B7 Morale ",
-                            p.morale,
-                            "/100"),
-                        p.clubId === null ? (contractOfferDraft?.playerId === p.id ? (React.createElement(ContractOfferBuilder, { p: p, draft: contractOfferDraft, setDraft: setContractOfferDraft, expected: expectedWage(p, activeClub), onCancel: () => setContractOfferDraft(null), onSubmit: () => submitContractOffer(p.id, activeClubId, contractOfferDraft, null, 0) })) : (React.createElement("button", { onClick: () => setContractOfferDraft({ playerId: p.id, wage: expectedWage(p, activeClub), signingBonus: 0, goalBonus: 0, assistBonus: 0, clauseRelegation: false, clausePromotion: false }), className: "w-full py-3 rounded-lg font-bold text-sm", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "\uD83D\uDCBC Offer Contract"))) : p.clubId === activeClubId ? (React.createElement("div", { className: "text-xs italic text-center", style: { color: C.sub } }, "Already part of your squad.")) : onCooldown ? (React.createElement("div", { className: "text-xs text-center", style: { color: C.sub } },
-                            clubsById[p.clubId]?.name,
-                            " aren't interested in an approach for ",
-                            p.transferCooldownUntil - week,
-                            " more week",
-                            p.transferCooldownUntil - week === 1 ? "" : "s",
-                            ".")) : (React.createElement("button", { onClick: () => openNegotiation(p), className: "w-full py-3 rounded-lg font-bold text-sm", style: { backgroundColor: C.amber, color: "#FFFFFF" } },
-                            "Approach ",
-                            clubsById[p.clubId]?.name)))));
-            })() : (React.createElement("div", null,
-                React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, "TRANSFER MARKET"),
-                activeClub && (() => {
-                    const cap = transferBudgetFor(activeClub);
-                    const used = activeClub.transferBudgetUsed || 0;
-                    const pct = Math.min(100, Math.round((used / cap) * 100));
-                    return (React.createElement("div", { className: "rounded-lg p-2.5 mb-3 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
-                        React.createElement("div", { className: "flex justify-between text-[10px] font-bold mb-1" },
-                            React.createElement("span", { style: { color: C.sub } }, "BOARD'S TRANSFER ALLOWANCE THIS SEASON"),
-                            React.createElement("span", null,
-                                formatMoney(used),
-                                " / ",
-                                formatMoney(cap))),
-                        React.createElement("div", { className: "h-1.5 rounded-full overflow-hidden", style: { backgroundColor: C.border } },
-                            React.createElement("div", { style: { width: `${pct}%`, height: "100%", backgroundColor: pct >= 90 ? C.red : C.amber } }))));
-                })(),
-                (() => {
-                    const myOffers = (world.pendingOffers || []).filter((o) => o.buyerClubId === activeClubId && o.status !== "accepted" && o.status !== "rejected");
-                    if (!myOffers.length)
-                        return null;
-                    return (React.createElement("div", { className: "rounded-lg p-3 mb-3 border", style: { backgroundColor: C.cardAlt, borderColor: C.amber } },
-                        React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-2", style: { color: C.amber } }, "YOUR CONTRACT OFFERS"),
-                        React.createElement("div", { className: "space-y-2" }, myOffers.map((o) => {
-                            const player = world.players.find((p) => p.id === o.playerId);
-                            if (!player)
+            tab === "market" && world && (React.createElement("div", { className: "lg:grid lg:grid-cols-[420px_1fr] lg:gap-4 lg:items-start" },
+                React.createElement("div", { className: marketPlayerId ? "hidden lg:block" : "" },
+                    React.createElement("div", null,
+                        React.createElement("div", { className: "text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } }, "TRANSFER MARKET"),
+                        activeClub && (() => {
+                            const cap = transferBudgetFor(activeClub);
+                            const used = activeClub.transferBudgetUsed || 0;
+                            const pct = Math.min(100, Math.round((used / cap) * 100));
+                            return (React.createElement("div", { className: "rounded-lg p-2.5 mb-3 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
+                                React.createElement("div", { className: "flex justify-between text-[10px] font-bold mb-1" },
+                                    React.createElement("span", { style: { color: C.sub } }, "BOARD'S TRANSFER ALLOWANCE THIS SEASON"),
+                                    React.createElement("span", null,
+                                        formatMoney(used),
+                                        " / ",
+                                        formatMoney(cap))),
+                                React.createElement("div", { className: "h-1.5 rounded-full overflow-hidden", style: { backgroundColor: C.border } },
+                                    React.createElement("div", { style: { width: `${pct}%`, height: "100%", backgroundColor: pct >= 90 ? C.red : C.amber } }))));
+                        })(),
+                        (() => {
+                            const myOffers = (world.pendingOffers || []).filter((o) => o.buyerClubId === activeClubId && o.status !== "accepted" && o.status !== "rejected");
+                            if (!myOffers.length)
                                 return null;
-                            return (React.createElement("div", { key: o.id, className: "rounded-lg p-2.5 border", style: { backgroundColor: "#FFFFFF", borderColor: C.border } },
-                                React.createElement("div", { className: "flex items-center justify-between text-xs font-bold mb-1" },
-                                    React.createElement("span", null, player.name),
+                            return (React.createElement("div", { className: "rounded-lg p-3 mb-3 border", style: { backgroundColor: C.cardAlt, borderColor: C.amber } },
+                                React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-2", style: { color: C.amber } }, "YOUR CONTRACT OFFERS"),
+                                React.createElement("div", { className: "space-y-2" }, myOffers.map((o) => {
+                                    const player = world.players.find((p) => p.id === o.playerId);
+                                    if (!player)
+                                        return null;
+                                    return (React.createElement("div", { key: o.id, className: "rounded-lg p-2.5 border", style: { backgroundColor: "#FFFFFF", borderColor: C.border } },
+                                        React.createElement("div", { className: "flex items-center justify-between text-xs font-bold mb-1" },
+                                            React.createElement("span", null, player.name),
+                                            React.createElement("span", { style: { color: C.sub } },
+                                                formatMoney(o.status === "countered" ? o.counterWage : o.wage),
+                                                "/wk")),
+                                        o.status === "pending" && React.createElement("div", { className: "text-[9px]", style: { color: C.sub } },
+                                            "Awaiting response \u2014 back by week ",
+                                            o.responseWeek,
+                                            "."),
+                                        o.status === "countered" && (React.createElement(React.Fragment, null,
+                                            React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.amber } },
+                                                "They've come back asking for ",
+                                                formatMoney(o.counterWage),
+                                                "/wk instead of your ",
+                                                formatMoney(o.wage),
+                                                "/wk."),
+                                            React.createElement("div", { className: "flex gap-1.5" },
+                                                React.createElement("button", { onClick: () => respondToCounterOffer(o.id, "accept"), className: "flex-1 py-1.5 rounded text-[10px] font-bold", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "Accept Their Terms"),
+                                                React.createElement("button", { onClick: () => respondToCounterOffer(o.id, "withdraw"), className: "flex-1 py-1.5 rounded text-[10px] font-bold border", style: { borderColor: C.border, color: C.sub } }, "Withdraw"))))));
+                                }))));
+                        })(),
+                        React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Tap any player to see their full profile \u2014 stats, apps, goals, wage \u2014 before signing or making an approach."),
+                        React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-2" },
+                            React.createElement(Pill, { active: marketFilter.pos === "all", onClick: () => setMarketFilter((f) => ({ ...f, pos: "all" })) }, "All Positions"),
+                            POSITIONS.map((p) => React.createElement(Pill, { key: p, active: marketFilter.pos === p, onClick: () => setMarketFilter((f) => ({ ...f, pos: p })) }, p))),
+                        React.createElement("input", { value: marketFilter.search, onChange: (e) => setMarketFilter((f) => ({ ...f, search: e.target.value })), placeholder: "Search by name...", className: "w-full border rounded px-3 py-1.5 text-xs mb-4", style: selStyle }),
+                        !isTransferWindowOpen() && (React.createElement("div", { className: "rounded-lg p-2.5 mb-3 text-[10px] border", style: { backgroundColor: C.cardAlt, borderColor: C.amber, color: C.amber } }, "\uD83D\uDD12 The transfer window is shut \u2014 you can still sign free agents, but buying from another club has to wait. Windows run weeks 1-6 and 16-20.")),
+                        React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "FREE AGENTS"),
+                        React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } },
+                            "\uD83D\uDD04 A fresh selection surfaces each week \u2014 capped to what's realistic for ",
+                            DIVISIONS_SEED[DIVISIONS_SEED.findIndex((d) => d.id === activeClub?.divisionId)]?.name || "your division",
+                            ". Check back regularly; a good one won't wait around."),
+                        React.createElement("div", { className: "space-y-1.5 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-2 mb-5" },
+                            visibleFreeAgents.filter((p) => (marketFilter.pos === "all" || p.position === marketFilter.pos) && (!marketFilter.search || p.name.toLowerCase().includes(marketFilter.search.toLowerCase()))).map((p) => (React.createElement("button", { key: p.id, onClick: () => setMarketPlayerId(p.id), className: "w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
+                                React.createElement("span", null,
+                                    React.createElement("span", { className: "font-bold" }, p.name),
+                                    " ",
                                     React.createElement("span", { style: { color: C.sub } },
-                                        formatMoney(o.status === "countered" ? o.counterWage : o.wage),
-                                        "/wk")),
-                                o.status === "pending" && React.createElement("div", { className: "text-[9px]", style: { color: C.sub } },
-                                    "Awaiting response \u2014 back by week ",
-                                    o.responseWeek,
-                                    "."),
-                                o.status === "countered" && (React.createElement(React.Fragment, null,
-                                    React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.amber } },
-                                        "They've come back asking for ",
-                                        formatMoney(o.counterWage),
-                                        "/wk instead of your ",
-                                        formatMoney(o.wage),
-                                        "/wk."),
-                                    React.createElement("div", { className: "flex gap-1.5" },
-                                        React.createElement("button", { onClick: () => respondToCounterOffer(o.id, "accept"), className: "flex-1 py-1.5 rounded text-[10px] font-bold", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "Accept Their Terms"),
-                                        React.createElement("button", { onClick: () => respondToCounterOffer(o.id, "withdraw"), className: "flex-1 py-1.5 rounded text-[10px] font-bold border", style: { borderColor: C.border, color: C.sub } }, "Withdraw"))))));
-                        }))));
-                })(),
-                React.createElement("div", { className: "text-[10px] mb-3", style: { color: C.sub } }, "Tap any player to see their full profile \u2014 stats, apps, goals, wage \u2014 before signing or making an approach."),
-                React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-2" },
-                    React.createElement(Pill, { active: marketFilter.pos === "all", onClick: () => setMarketFilter((f) => ({ ...f, pos: "all" })) }, "All Positions"),
-                    POSITIONS.map((p) => React.createElement(Pill, { key: p, active: marketFilter.pos === p, onClick: () => setMarketFilter((f) => ({ ...f, pos: p })) }, p))),
-                React.createElement("input", { value: marketFilter.search, onChange: (e) => setMarketFilter((f) => ({ ...f, search: e.target.value })), placeholder: "Search by name...", className: "w-full border rounded px-3 py-1.5 text-xs mb-4", style: selStyle }),
-                !isTransferWindowOpen() && (React.createElement("div", { className: "rounded-lg p-2.5 mb-3 text-[10px] border", style: { backgroundColor: C.cardAlt, borderColor: C.amber, color: C.amber } }, "\uD83D\uDD12 The transfer window is shut \u2014 you can still sign free agents, but buying from another club has to wait. Windows run weeks 1-6 and 16-20.")),
-                React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "FREE AGENTS"),
-                React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } },
-                    "\uD83D\uDD04 A fresh selection surfaces each week \u2014 capped to what's realistic for ",
-                    DIVISIONS_SEED[DIVISIONS_SEED.findIndex((d) => d.id === activeClub?.divisionId)]?.name || "your division",
-                    ". Check back regularly; a good one won't wait around."),
-                React.createElement("div", { className: "space-y-1.5 mb-5" },
-                    visibleFreeAgents.filter((p) => (marketFilter.pos === "all" || p.position === marketFilter.pos) && (!marketFilter.search || p.name.toLowerCase().includes(marketFilter.search.toLowerCase()))).map((p) => (React.createElement("button", { key: p.id, onClick: () => setMarketPlayerId(p.id), className: "w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
-                        React.createElement("span", null,
-                            React.createElement("span", { className: "font-bold" }, p.name),
-                            " ",
-                            React.createElement("span", { style: { color: C.sub } },
-                                p.position,
-                                " \u00B7 OVR ",
-                                p.overall,
-                                " \u00B7 ",
-                                formatMoney(p.wage || newSigningWage(p.overall, 1)),
-                                "/wk"),
-                            React.createElement(BreakoutBadge, { player: p })),
-                        React.createElement("span", { style: { color: C.sub } }, "\u203A")))),
-                    visibleFreeAgents.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "No free agents right now \u2014 check back next week.")),
-                React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "SIGN FROM RIVAL CLUBS"),
-                React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "Only players a club has actually transfer-listed show up here \u2014 everyone else, you'd need to check that club's own page and make a direct approach."),
-                React.createElement("div", { className: "space-y-1.5" },
-                    world.players.filter((p) => p.clubId && p.clubId !== activeClubId && p.transferListed && (marketFilter.pos === "all" || p.position === marketFilter.pos) && (!marketFilter.search || p.name.toLowerCase().includes(marketFilter.search.toLowerCase()))).sort((a, b) => b.overall - a.overall).slice(0, 60).map((p) => {
-                        const onCooldown = p.transferCooldownUntil && week < p.transferCooldownUntil;
-                        return (React.createElement("button", { key: p.id, onClick: () => setMarketPlayerId(p.id), className: "w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
+                                        p.position,
+                                        " \u00B7 OVR ",
+                                        p.overall,
+                                        " \u00B7 ",
+                                        formatMoney(p.wage || newSigningWage(p.overall, 1)),
+                                        "/wk"),
+                                    React.createElement(BreakoutBadge, { player: p })),
+                                React.createElement("span", { style: { color: C.sub } }, "\u203A")))),
+                            visibleFreeAgents.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "No free agents right now \u2014 check back next week.")),
+                        React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "SIGN FROM RIVAL CLUBS"),
+                        React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "Only players a club has actually transfer-listed show up here \u2014 everyone else, you'd need to check that club's own page and make a direct approach."),
+                        React.createElement("div", { className: "space-y-1.5 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-2" },
+                            world.players.filter((p) => p.clubId && p.clubId !== activeClubId && p.transferListed && (marketFilter.pos === "all" || p.position === marketFilter.pos) && (!marketFilter.search || p.name.toLowerCase().includes(marketFilter.search.toLowerCase()))).sort((a, b) => b.overall - a.overall).slice(0, 60).map((p) => {
+                                const onCooldown = p.transferCooldownUntil && week < p.transferCooldownUntil;
+                                return (React.createElement("button", { key: p.id, onClick: () => setMarketPlayerId(p.id), className: "w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
+                                    React.createElement("span", null,
+                                        React.createElement("span", { className: "font-bold" }, p.name),
+                                        " ",
+                                        React.createElement("span", { style: { color: C.sub } },
+                                            p.position,
+                                            " \u00B7 OVR ",
+                                            p.overall,
+                                            " \u00B7 ",
+                                            clubsById[p.clubId]?.name),
+                                        React.createElement(BreakoutBadge, { player: p })),
+                                    onCooldown ? React.createElement("span", { className: "text-[9px]", style: { color: C.sub } },
+                                        p.transferCooldownUntil - week,
+                                        "wk") : React.createElement("span", { style: { color: C.sub } }, "\u203A")));
+                            }),
+                            world.players.filter((p) => p.clubId && p.clubId !== activeClubId && p.transferListed).length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nobody anywhere is currently transfer listed.")),
+                        React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5 mt-4", style: { color: "#3B82C4" } }, "\uD83D\uDCCB LOAN MARKET"),
+                        React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "Players other clubs have made available for a season-long loan \u2014 a small fee to their parent club, and you cover their wages while they're with you."),
+                        loanRequestMsg && React.createElement("div", { className: "text-[10px] font-bold mb-2 px-2 py-1.5 rounded", style: { backgroundColor: loanRequestMsg.startsWith("✅") ? "#E8F5E9" : "#FBEDEA", color: loanRequestMsg.startsWith("✅") ? C.green : C.red } }, loanRequestMsg),
+                        React.createElement("div", { className: "space-y-1.5 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-2" },
+                            world.players.filter((p) => p.clubId && p.clubId !== activeClubId && p.loanListed && (marketFilter.pos === "all" || p.position === marketFilter.pos) && (!marketFilter.search || p.name.toLowerCase().includes(marketFilter.search.toLowerCase()))).sort((a, b) => b.overall - a.overall).slice(0, 40).map((p) => (React.createElement("button", { key: p.id, onClick: () => { if (!(activeClub && activeClub.budget >= Math.max(500, Math.round(estimatedValue(p.overall, effectiveTierFromBudget(clubsById[p.clubId]?.startingBudget)) * 0.04)))) {
+                                    setLoanRequestMsg(`❌ Can't afford the loan fee for ${p.name}.`);
+                                    return;
+                                } const result = requestLoan(p.id, activeClubId); setLoanRequestMsg(result === "accepted" ? `✅ ${p.name} joins on loan.` : result === "cant-afford" ? `❌ Can't afford the loan fee for ${p.name}.` : result === "on-cooldown" ? `❌ ${clubsById[p.clubId]?.name} won't discuss loaning ${p.name} again so soon.` : `❌ ${clubsById[p.clubId]?.name} turned down the loan request.`); }, className: "w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs border text-left", style: { backgroundColor: C.card, borderColor: "#3B82C4" } },
+                                React.createElement("span", null,
+                                    React.createElement("span", { className: "font-bold" }, p.name),
+                                    " ",
+                                    React.createElement("span", { style: { color: C.sub } },
+                                        p.position,
+                                        " \u00B7 OVR ",
+                                        p.overall,
+                                        " \u00B7 ",
+                                        clubsById[p.clubId]?.name)),
+                                React.createElement("span", { className: "text-[9px] font-bold", style: { color: "#3B82C4" } }, "Request Loan")))),
+                            world.players.filter((p) => p.clubId && p.clubId !== activeClubId && p.loanListed).length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nobody anywhere has a player out on loan right now.")),
+                        React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5 mt-4", style: { color: "#3B82C4" } }, "APPROACH FOR A LOAN"),
+                        React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "Ask about any player, not just who's listed \u2014 a parent club can say no, especially for a player they actually rely on."),
+                        React.createElement("input", { value: loanApproachSearch, onChange: (e) => setLoanApproachSearch(e.target.value), placeholder: "Search any player by name...", className: "w-full rounded-lg px-3 py-2 text-xs border mb-2", style: { borderColor: C.border } }),
+                        loanApproachSearch.length >= 2 && (React.createElement("div", { className: "space-y-1.5 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-2" }, world.players.filter((p) => p.clubId && p.clubId !== activeClubId && !p.loanParentClubId && !controlled.includes(p.clubId) && p.name.toLowerCase().includes(loanApproachSearch.toLowerCase())).sort((a, b) => b.overall - a.overall).slice(0, 15).map((p) => (React.createElement("button", { key: p.id, onClick: () => { if (!(activeClub && activeClub.budget >= Math.max(500, Math.round(estimatedValue(p.overall, effectiveTierFromBudget(clubsById[p.clubId]?.startingBudget)) * 0.04)))) {
+                                setLoanRequestMsg(`❌ Can't afford the loan fee for ${p.name}.`);
+                                return;
+                            } const result = requestLoan(p.id, activeClubId); setLoanRequestMsg(result === "accepted" ? `✅ ${p.name} joins on loan.` : result === "cant-afford" ? `❌ Can't afford the loan fee for ${p.name}.` : result === "on-cooldown" ? `❌ ${clubsById[p.clubId]?.name} won't discuss loaning ${p.name} again so soon.` : `❌ ${clubsById[p.clubId]?.name} turned down the loan request.`); }, className: "w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
                             React.createElement("span", null,
                                 React.createElement("span", { className: "font-bold" }, p.name),
                                 " ",
@@ -9009,49 +9083,63 @@ function App() {
                                     " \u00B7 OVR ",
                                     p.overall,
                                     " \u00B7 ",
-                                    clubsById[p.clubId]?.name),
-                                React.createElement(BreakoutBadge, { player: p })),
-                            onCooldown ? React.createElement("span", { className: "text-[9px]", style: { color: C.sub } },
-                                p.transferCooldownUntil - week,
-                                "wk") : React.createElement("span", { style: { color: C.sub } }, "\u203A")));
-                    }),
-                    world.players.filter((p) => p.clubId && p.clubId !== activeClubId && p.transferListed).length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nobody anywhere is currently transfer listed.")),
-                React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5 mt-4", style: { color: "#3B82C4" } }, "\uD83D\uDCCB LOAN MARKET"),
-                React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "Players other clubs have made available for a season-long loan \u2014 a small fee to their parent club, and you cover their wages while they're with you."),
-                loanRequestMsg && React.createElement("div", { className: "text-[10px] font-bold mb-2 px-2 py-1.5 rounded", style: { backgroundColor: loanRequestMsg.startsWith("✅") ? "#E8F5E9" : "#FBEDEA", color: loanRequestMsg.startsWith("✅") ? C.green : C.red } }, loanRequestMsg),
-                React.createElement("div", { className: "space-y-1.5" },
-                    world.players.filter((p) => p.clubId && p.clubId !== activeClubId && p.loanListed && (marketFilter.pos === "all" || p.position === marketFilter.pos) && (!marketFilter.search || p.name.toLowerCase().includes(marketFilter.search.toLowerCase()))).sort((a, b) => b.overall - a.overall).slice(0, 40).map((p) => (React.createElement("button", { key: p.id, onClick: () => { if (!(activeClub && activeClub.budget >= Math.max(500, Math.round(estimatedValue(p.overall, effectiveTierFromBudget(clubsById[p.clubId]?.startingBudget)) * 0.04)))) {
-                            setLoanRequestMsg(`❌ Can't afford the loan fee for ${p.name}.`);
-                            return;
-                        } const result = requestLoan(p.id, activeClubId); setLoanRequestMsg(result === "accepted" ? `✅ ${p.name} joins on loan.` : result === "cant-afford" ? `❌ Can't afford the loan fee for ${p.name}.` : result === "on-cooldown" ? `❌ ${clubsById[p.clubId]?.name} won't discuss loaning ${p.name} again so soon.` : `❌ ${clubsById[p.clubId]?.name} turned down the loan request.`); }, className: "w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs border text-left", style: { backgroundColor: C.card, borderColor: "#3B82C4" } },
-                        React.createElement("span", null,
-                            React.createElement("span", { className: "font-bold" }, p.name),
-                            " ",
-                            React.createElement("span", { style: { color: C.sub } },
+                                    clubsById[p.clubId]?.name)),
+                            React.createElement("span", { className: "text-[9px] font-bold", style: { color: C.sub } }, "Ask to Loan"))))))),
+                    ")"),
+                React.createElement("div", { className: (marketPlayerId ? "" : "hidden lg:flex lg:items-center lg:justify-center"), style: marketPlayerId ? {} : { minHeight: 300 } }, marketPlayerId ? (() => {
+                    const p = world.players.find((pl) => pl.id === marketPlayerId);
+                    if (!p)
+                        return React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "That player is no longer available.");
+                    const onCooldown = p.transferCooldownUntil && week < p.transferCooldownUntil;
+                    return (React.createElement("div", null,
+                        React.createElement("button", { onClick: () => setMarketPlayerId(null), className: "text-xs font-bold mb-3", style: { color: C.sub } }, "\u2190 Back to Transfer Market"),
+                        React.createElement("div", { className: "rounded-lg p-5 border", style: { backgroundColor: C.card, borderColor: C.border } },
+                            React.createElement("div", { className: "text-xl font-bold mb-1" }, p.name),
+                            React.createElement("div", { className: "text-[11px] font-bold mb-3", style: { color: C.green } },
                                 p.position,
                                 " \u00B7 OVR ",
                                 p.overall,
-                                " \u00B7 ",
-                                clubsById[p.clubId]?.name)),
-                        React.createElement("span", { className: "text-[9px] font-bold", style: { color: "#3B82C4" } }, "Request Loan")))),
-                    world.players.filter((p) => p.clubId && p.clubId !== activeClubId && p.loanListed).length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nobody anywhere has a player out on loan right now.")),
-                React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5 mt-4", style: { color: "#3B82C4" } }, "APPROACH FOR A LOAN"),
-                React.createElement("div", { className: "text-[9px] mb-2", style: { color: C.sub } }, "Ask about any player, not just who's listed \u2014 a parent club can say no, especially for a player they actually rely on."),
-                React.createElement("input", { value: loanApproachSearch, onChange: (e) => setLoanApproachSearch(e.target.value), placeholder: "Search any player by name...", className: "w-full rounded-lg px-3 py-2 text-xs border mb-2", style: { borderColor: C.border } }),
-                loanApproachSearch.length >= 2 && (React.createElement("div", { className: "space-y-1.5" }, world.players.filter((p) => p.clubId && p.clubId !== activeClubId && !p.loanParentClubId && !controlled.includes(p.clubId) && p.name.toLowerCase().includes(loanApproachSearch.toLowerCase())).sort((a, b) => b.overall - a.overall).slice(0, 15).map((p) => (React.createElement("button", { key: p.id, onClick: () => { if (!(activeClub && activeClub.budget >= Math.max(500, Math.round(estimatedValue(p.overall, effectiveTierFromBudget(clubsById[p.clubId]?.startingBudget)) * 0.04)))) {
-                        setLoanRequestMsg(`❌ Can't afford the loan fee for ${p.name}.`);
-                        return;
-                    } const result = requestLoan(p.id, activeClubId); setLoanRequestMsg(result === "accepted" ? `✅ ${p.name} joins on loan.` : result === "cant-afford" ? `❌ Can't afford the loan fee for ${p.name}.` : result === "on-cooldown" ? `❌ ${clubsById[p.clubId]?.name} won't discuss loaning ${p.name} again so soon.` : `❌ ${clubsById[p.clubId]?.name} turned down the loan request.`); }, className: "w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs border text-left", style: { backgroundColor: C.card, borderColor: C.border } },
-                    React.createElement("span", null,
-                        React.createElement("span", { className: "font-bold" }, p.name),
-                        " ",
-                        React.createElement("span", { style: { color: C.sub } },
-                            p.position,
-                            " \u00B7 OVR ",
-                            p.overall,
-                            " \u00B7 ",
-                            clubsById[p.clubId]?.name)),
-                    React.createElement("span", { className: "text-[9px] font-bold", style: { color: C.sub } }, "Ask to Loan"))))))))),
+                                " \u00B7 Age ",
+                                p.age,
+                                p.injuredWeeks > 0 && React.createElement("span", { style: { color: C.red } },
+                                    " \u00B7 ",
+                                    p.injuryType,
+                                    " (",
+                                    p.injuredWeeks,
+                                    "wk)"),
+                                p.suspendedMatches > 0 && React.createElement("span", { style: { color: C.amber } },
+                                    " \u00B7 \uD83D\uDFE5 Suspended (",
+                                    p.suspendedMatches,
+                                    ")")),
+                            React.createElement("div", { className: "grid grid-cols-2 gap-3 mb-4" }, STAT_KEYS.map((k) => React.createElement(StatBar, { key: k, label: STAT_LABEL[k], value: p[k] }))),
+                            React.createElement("div", { className: "grid grid-cols-4 gap-2 mb-4" },
+                                React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
+                                    React.createElement("div", { className: "text-lg font-black" }, p.apps),
+                                    React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, "APPS")),
+                                React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
+                                    React.createElement("div", { className: "text-lg font-black" }, p.goals),
+                                    React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, "GOALS")),
+                                React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
+                                    React.createElement("div", { className: "text-lg font-black" }, p.position === "GK" ? p.saves : p.assists),
+                                    React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, p.position === "GK" ? "SAVES" : "ASSISTS")),
+                                React.createElement("div", { className: "rounded-lg p-2 text-center", style: { backgroundColor: C.cardAlt } },
+                                    React.createElement("div", { className: "text-lg font-black" }, formatMoney(p.wage || newSigningWage(p.overall, 1))),
+                                    React.createElement("div", { className: "text-[9px]", style: { color: C.sub } }, p.clubId ? "WAGE/WK" : "EST. WAGE/WK"))),
+                            React.createElement("div", { className: "text-[10px] mb-4", style: { color: C.sub } },
+                                p.clubId ? `Contracted to ${clubsById[p.clubId]?.name} — ${p.contractWeeks} weeks remaining` : "Free agent",
+                                " \u00B7 Morale ",
+                                p.morale,
+                                "/100"),
+                            p.clubId === null ? (contractOfferDraft?.playerId === p.id ? (React.createElement(ContractOfferBuilder, { p: p, draft: contractOfferDraft, setDraft: setContractOfferDraft, expected: expectedWage(p, activeClub), onCancel: () => setContractOfferDraft(null), onSubmit: () => submitContractOffer(p.id, activeClubId, contractOfferDraft, null, 0) })) : (React.createElement("button", { onClick: () => setContractOfferDraft({ playerId: p.id, wage: expectedWage(p, activeClub), signingBonus: 0, goalBonus: 0, assistBonus: 0, clauseRelegation: false, clausePromotion: false }), className: "w-full py-3 rounded-lg font-bold text-sm", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "\uD83D\uDCBC Offer Contract"))) : p.clubId === activeClubId ? (React.createElement("div", { className: "text-xs italic text-center", style: { color: C.sub } }, "Already part of your squad.")) : onCooldown ? (React.createElement("div", { className: "text-xs text-center", style: { color: C.sub } },
+                                clubsById[p.clubId]?.name,
+                                " aren't interested in an approach for ",
+                                p.transferCooldownUntil - week,
+                                " more week",
+                                p.transferCooldownUntil - week === 1 ? "" : "s",
+                                ".")) : (React.createElement("button", { onClick: () => openNegotiation(p), className: "w-full py-3 rounded-lg font-bold text-sm", style: { backgroundColor: C.amber, color: "#FFFFFF" } },
+                                "Approach ",
+                                clubsById[p.clubId]?.name)))));
+                })() : (React.createElement("div", { className: "text-sm italic text-center", style: { color: C.sub } }, "Select a player from the list to see their full profile."))))),
             tab === "cup" && world && (() => {
                 const myClub = clubsById[activeClubId];
                 const myCupDef = myClub ? CUP_DEFS.find((d) => d.divisionId === myClub.divisionId) : null;
@@ -10017,8 +10105,8 @@ function App() {
                         " ",
                         n.text)))),
                     news.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nothing yet."))))),
-        React.createElement("div", { className: "fixed bottom-0 left-0 right-0 z-40 border-t", style: { backgroundColor: "#FFFFFF", borderColor: C.border } },
-            React.createElement("div", { className: "max-w-4xl lg:max-w-6xl mx-auto flex items-stretch" },
+        React.createElement("div", { className: "fixed bottom-0 left-0 right-0 z-40 border-t lg:hidden", style: { backgroundColor: "#FFFFFF", borderColor: C.border } },
+            React.createElement("div", { className: "max-w-4xl lg:max-w-[1600px] mx-auto flex items-stretch" },
                 React.createElement("div", { className: "flex flex-col items-center justify-center gap-0.5 py-2.5", style: { width: 44, flexShrink: 0, color: C.sub, borderRight: `1px solid ${C.border}` } },
                     React.createElement(Ico, { e: "\uD83D\uDCC5", size: 14, color: C.amber }),
                     React.createElement("span", { className: "text-[7px] font-bold tracking-wide" },
@@ -10036,6 +10124,29 @@ function App() {
                         React.createElement(Ico, { e: "\u25B6", size: 14, color: cs.disabled ? C.sub : "#FFFFFF" }),
                         React.createElement("span", { className: "text-[8px] font-black tracking-wide text-center leading-none" }, cs.label)));
                 })())),
+        React.createElement("div", { className: "hidden lg:flex fixed right-0 top-0 bottom-0 z-40 border-l flex-col", style: { width: 232, backgroundColor: "#FFFFFF", borderColor: C.border } },
+            React.createElement("div", { className: "flex items-center gap-2 px-4 py-4 border-b", style: { borderColor: C.border } },
+                React.createElement(Ico, { e: "\uD83D\uDCC5", size: 16, color: C.amber }),
+                React.createElement("span", { className: "text-xs font-bold tracking-wide", style: { color: C.sub } },
+                    "SEASON ",
+                    season,
+                    " \u00B7 WEEK ",
+                    week)),
+            React.createElement("div", { className: "flex flex-col gap-1 p-3" },
+                controlled.length === 2 && (React.createElement("button", { onClick: () => setActiveIdx((i) => (i === 0 ? 1 : 0)), className: "flex items-center gap-1.5 text-[10px] font-bold px-2 py-2 mb-1 rounded-lg", style: { color: C.amber, backgroundColor: C.cardAlt } },
+                    React.createElement(Ico, { e: "\u21C4", size: 12, color: C.amber }),
+                    " Switch to ",
+                    managerNames[activeIdx === 0 ? 1 : 0] || "other manager")),
+                React.createElement(SidebarTabButton, { active: ["clubhub", "squad", "staff", "finance", "academy", "sponsorship", "kit", "numbers"].includes(tab), onClick: () => setTab("clubhub"), icon: "\uD83D\uDEE1\uFE0F", label: "Club" }),
+                React.createElement(SidebarTabButton, { active: ["managerhub", "jobinfo", "boardobjectives", "training", "savepage", "fixtures", "scouting", "leaderboard", "achievements", "messages", "guide"].includes(tab), onClick: () => setTab("managerhub"), icon: "\uD83D\uDC54", label: "Manager" }),
+                React.createElement(SidebarTabButton, { active: ["worldhub", "table", "cup", "market", "clubs", "results", "playerstats", "fanpopularity", "news", "history"].includes(tab), onClick: () => setTab("worldhub"), icon: "\uD83C\uDF0D", label: "World" }),
+                React.createElement(SidebarTabButton, { active: tab === "play", onClick: () => setTab("play"), icon: "\u26BD", label: "Play" })),
+            React.createElement("div", { className: "mt-auto p-3 border-t", style: { borderColor: C.border } }, (() => {
+                const cs = continueButtonState();
+                return (React.createElement("button", { onClick: () => !cs.disabled && cs.action && cs.action(), disabled: cs.disabled, className: "w-full flex items-center justify-center gap-2 py-3 rounded-lg disabled:opacity-40", style: { backgroundColor: cs.disabled ? C.cardAlt : C.green, color: cs.disabled ? C.sub : "#FFFFFF" } },
+                    React.createElement(Ico, { e: "\u25B6", size: 15, color: cs.disabled ? C.sub : "#FFFFFF" }),
+                    React.createElement("span", { className: "text-xs font-black tracking-wide" }, cs.label)));
+            })())),
         negotiation && (React.createElement("div", { className: "fixed inset-0 z-50 flex items-center justify-center p-4", style: { backgroundColor: "rgba(20,30,22,0.55)" }, onClick: () => setNegotiation(null) },
             React.createElement("div", { className: "rounded-lg p-5 max-w-sm w-full border", style: { backgroundColor: C.card, borderColor: C.border }, onClick: (e) => e.stopPropagation() },
                 React.createElement("div", { className: "text-lg font-bold mb-1" },
