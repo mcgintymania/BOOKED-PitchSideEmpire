@@ -954,6 +954,55 @@ function newSigningWage(overall, clubTier) {
     return Math.max(10, Math.round(Math.exp(0.1286 * overall + 0.3849 * tier - 1.9695)));
 }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+// A save game of this size (2000+ players, full history) genuinely does not belong in
+// localStorage — that store is synchronous, string-only, and typically capped around
+// 5-10MB per origin (often less again inside an embedded iframe, which is exactly how
+// this game is hosted). IndexedDB is the right tool for a payload this size: same browser,
+// no server, no account needed, but built for large structured data with a quota that's
+// ordinarily hundreds of MB to multiple GB. Every save/load function below reads and writes
+// through this instead now; a one-time migration on load moves anyone's existing
+// localStorage saves across automatically so nobody's progress just disappears.
+const IDB_NAME = "booked-pse-db";
+const IDB_STORE = "kv";
+function idbOpen() {
+    return new Promise((resolve, reject) => {
+        if (!window.indexedDB) {
+            reject(new Error("IndexedDB unavailable"));
+            return;
+        }
+        const req = indexedDB.open(IDB_NAME, 1);
+        req.onupgradeneeded = () => { req.result.createObjectStore(IDB_STORE); };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+async function idbGet(key) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, "readonly");
+        const req = tx.objectStore(IDB_STORE).get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+async function idbSet(key, value) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).put(value, key);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+    });
+}
+async function idbDelete(key) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).delete(key);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+    });
+}
 function genName() { return `${choice(FIRST_NAMES)} ${choice(LAST_NAMES)}`; }
 function genManagerName(used) {
     let name;
@@ -3538,23 +3587,23 @@ function App() {
         setConfirmingRestart(false);
         setPhase("setup");
     }
-    function attemptStartGame(forceEmpty) {
+    async function attemptStartGame(forceEmpty) {
         const isTwoPlayer = !forceEmpty && setupSelection.length > 1;
         // One save per game type keeps the Load Game list from becoming an ever-growing pile —
         // starting a second career (or second 2-player game) replaces the existing one of that
         // type rather than sitting alongside it, but only after a clear, explicit confirmation,
         // never silently.
-        const existing = loadSlotsIndex().find((s) => !!s.isTwoPlayer === isTwoPlayer);
+        const existing = (await loadSlotsIndex()).find((s) => !!s.isTwoPlayer === isTwoPlayer);
         if (existing) {
             setPendingOverwriteSlot({ slotId: existing.id, label: existing.label, isTwoPlayer, forceEmpty });
             return;
         }
         startGame(forceEmpty);
     }
-    function confirmOverwriteAndStart() {
+    async function confirmOverwriteAndStart() {
         if (!pendingOverwriteSlot)
             return;
-        deleteSlot(pendingOverwriteSlot.slotId);
+        await deleteSlot(pendingOverwriteSlot.slotId);
         startGame(pendingOverwriteSlot.forceEmpty);
         setPendingOverwriteSlot(null);
     }
@@ -5789,6 +5838,7 @@ function App() {
         }
         const newReleaseRequests = [];
         const newMoraleWarnings = [];
+        const resolvedRequestNews = [];
         const bonusPayouts = {};
         const leaderClubIds = new Set(world.players.filter((pl) => pl.clubId && personalityFor(pl) === "leader").map((pl) => pl.clubId));
         setWorld((w) => ({
@@ -5868,6 +5918,17 @@ function App() {
                             const reason = moraleReason(np, clubsById[np.clubId]);
                             newMoraleWarnings.push({ name: np.name, clubId: np.clubId, reasonText: reason.text });
                         }
+                        // A concrete Request follows one week before the auto release-request threshold —
+                        // the manager's chance to head it off with an actual commitment rather than just
+                        // watching the countdown run out. Only fires for a diagnosis that maps to a real,
+                        // checkable action, and only once at a time per player.
+                        if (lowWeeks === Math.max(2, weeksNeeded - 1) && controlled.includes(np.clubId) && !np.activeRequest) {
+                            const reason = moraleReason(np, clubsById[np.clubId]);
+                            const rt = requestTypeFor(reason.text);
+                            if (rt) {
+                                np = { ...np, activeRequest: { type: rt.type, ask: rt.ask, weekMade: week, deadlineWeek: week + 6, status: "pending", snapshotApps: np.seasonApps || 0, snapshotWage: np.wage, snapshotContractWeeks: np.contractWeeks || 0 } };
+                            }
+                        }
                         if (lowWeeks >= weeksNeeded && !np.releaseRequested) {
                             np = { ...np, releaseRequested: true };
                             newReleaseRequests.push({ name: np.name, clubId: np.clubId });
@@ -5875,6 +5936,29 @@ function App() {
                     }
                     else if (np.morale >= 40 && np.releaseRequested) {
                         np = { ...np, releaseRequested: false, lowMoraleWeeks: 0 };
+                    }
+                }
+                // A promised Request checks itself against what actually happened, rather than
+                // needing the manager to come back and confirm it — the same "real data, not a new
+                // parallel tracker" approach used everywhere else this update. Keeping a promise is
+                // worth more happiness than breaking it costs is dangerous, by design: an ignored
+                // promise should sting more than never promising at all.
+                if (np.clubId && np.activeRequest && np.activeRequest.status === "promised") {
+                    const req = np.activeRequest;
+                    let fulfilled = false;
+                    if (req.type === "gametime")
+                        fulfilled = (np.seasonApps || 0) - (req.snapshotApps || 0) >= 2;
+                    else if (req.type === "raise")
+                        fulfilled = np.wage > (req.snapshotWage || 0);
+                    else if (req.type === "contract")
+                        fulfilled = (np.contractWeeks || 0) > (req.snapshotContractWeeks || 0) + 4;
+                    if (fulfilled) {
+                        np = { ...np, activeRequest: null, morale: clamp(np.morale + 14, 0, 100) };
+                        resolvedRequestNews.push({ name: np.name, clubId: np.clubId, kept: true });
+                    }
+                    else if (week >= req.deadlineWeek) {
+                        np = { ...np, activeRequest: null, morale: clamp(np.morale - 18, 0, 100) };
+                        resolvedRequestNews.push({ name: np.name, clubId: np.clubId, kept: false });
                     }
                 }
                 return np;
@@ -5885,6 +5969,9 @@ function App() {
         }
         if (newMoraleWarnings.length) {
             setNews((n) => [...newMoraleWarnings.map((r) => ({ id: uid("n"), text: `${r.name} is becoming unsettled at ${clubsById[r.clubId]?.name} — ${r.reasonText.charAt(0).toLowerCase()}${r.reasonText.slice(1)}.`, clubIds: [r.clubId], week, season })), ...n].slice(0, 150));
+        }
+        if (resolvedRequestNews.length) {
+            setNews((n) => [...resolvedRequestNews.map((r) => ({ id: uid("n"), text: r.kept ? `${r.name} is happy — you came through on what you promised him.` : `${r.name} is fuming — you never followed through on your promise.`, clubIds: [r.clubId], week, season })), ...n].slice(0, 150));
         }
         if (Object.keys(bonusPayouts).length) {
             setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (bonusPayouts[c.id] ? { ...c, budget: c.budget - bonusPayouts[c.id] } : c)) }));
@@ -6240,6 +6327,19 @@ function App() {
         if (p.morale >= 60)
             return { icon: "🙂", text: "Happy with teammates" };
         return { icon: "😐", text: "Settling in" };
+    }
+    // Only three of the moraleReason diagnoses map to a request the manager can actually commit
+    // to and have checked against real outcomes later: minutes, wages, and a new deal. The other
+    // reasons (wants a bigger club, unhappy with results, generic settling-in) have no single
+    // action a manager can promise, so they stay a diagnosis only and never become a Request.
+    function requestTypeFor(reasonText) {
+        if (reasonText === "Wants more first-team football")
+            return { type: "gametime", ask: "wants regular first-team football" };
+        if (reasonText === "Feels underpaid for his ability")
+            return { type: "raise", ask: "wants a pay rise reflecting his ability" };
+        if (reasonText === "Wants a new contract")
+            return { type: "contract", ask: "wants a new contract sorted out" };
+        return null;
     }
     function areRivals(clubIdA, clubIdB) {
         const a = clubsById[clubIdA], b = clubsById[clubIdB];
@@ -6890,6 +6990,12 @@ function App() {
             return;
         setHiredScout((s) => ({ ...s, report: generateScoutReport(s, world.players, controlled), reportWeek: week }));
     }
+    function promiseRequest(playerId) {
+        setWorld((w) => ({ ...w, players: w.players.map((p) => (p.id === playerId && p.activeRequest?.status === "pending" ? { ...p, activeRequest: { ...p.activeRequest, status: "promised" } } : p)) }));
+    }
+    function declineRequest(playerId) {
+        setWorld((w) => ({ ...w, players: w.players.map((p) => (p.id === playerId && p.activeRequest?.status === "pending" ? { ...p, activeRequest: null, morale: clamp(p.morale - 8, 0, 100) } : p)) }));
+    }
     function renamePlayer(playerId, newName) {
         if (!newName.trim())
             return;
@@ -6953,28 +7059,29 @@ function App() {
             }),
         }));
     }
-    /* ---------- save / load (browser localStorage — stays on this device, multiple slots) ---------- */
-    function loadSlotsIndex() {
+    /* ---------- save / load (IndexedDB — stays on this device, multiple slots, migrated from localStorage) ---------- */
+    async function loadSlotsIndex() {
         try {
-            return JSON.parse(localStorage.getItem("booked-pse-saves-index") || "[]");
+            const idx = await idbGet("booked-pse-saves-index");
+            return idx || [];
         }
         catch (e) {
             return [];
         }
     }
-    function writeSlotsIndex(idx) {
+    async function writeSlotsIndex(idx) {
         try {
-            localStorage.setItem("booked-pse-saves-index", JSON.stringify(idx));
+            await idbSet("booked-pse-saves-index", idx);
         }
         catch (e) { }
     }
-    function exportSave(slotId) {
+    async function exportSave(slotId) {
         try {
-            const raw = localStorage.getItem(`booked-pse-save-${slotId}`);
-            if (!raw)
+            const data = await idbGet(`booked-pse-save-${slotId}`);
+            if (!data)
                 return;
             const meta = saveSlots.find((s) => s.id === slotId);
-            const blob = new Blob([raw], { type: "application/json" });
+            const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             const safeLabel = (meta?.label || "booked-save").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
@@ -6992,7 +7099,7 @@ function App() {
             return;
         setSaveMsg("Importing...");
         const reader = new FileReader();
-        reader.onload = () => {
+        reader.onload = async () => {
             try {
                 const payload = JSON.parse(reader.result);
                 // A minimal but real check — this isn't just any JSON file, it needs to actually look
@@ -7003,16 +7110,16 @@ function App() {
                     return;
                 }
                 const slotId = uid("slot");
-                localStorage.setItem(`booked-pse-save-${slotId}`, JSON.stringify(payload));
+                await idbSet(`booked-pse-save-${slotId}`, payload);
                 const clubNames = (payload.controlled || []).map((cid) => payload.world?.clubs?.find((c) => c.id === cid)?.name).filter(Boolean);
                 const meta = {
                     id: slotId, label: clubNames.length ? clubNames.join(" & ") : "Imported save",
                     clubNames, managerNames: (payload.managerNames || []).filter(Boolean),
                     season: payload.season, week: payload.week, isTwoPlayer: (payload.controlled || []).length > 1, savedAt: Date.now(),
                 };
-                const idx = loadSlotsIndex();
+                const idx = await loadSlotsIndex();
                 idx.push(meta);
-                writeSlotsIndex(idx);
+                await writeSlotsIndex(idx);
                 setSaveSlots(idx);
                 setSaveMsg("Imported!");
                 setTimeout(() => setSaveMsg(""), 2500);
@@ -7034,11 +7141,11 @@ function App() {
         const mgrLabel = managerNames.filter(Boolean).join(" & ");
         return names.length > 1 ? `${names.join(" & ")} (2-player)` : names[0];
     }
-    function saveToSlot(slotId) {
+    async function saveToSlot(slotId) {
         const payload = buildSavePayload();
-        function attemptSave(data) {
-            localStorage.setItem(`booked-pse-save-${slotId}`, JSON.stringify(data));
-            const idx = loadSlotsIndex();
+        async function attemptSave(data) {
+            await idbSet(`booked-pse-save-${slotId}`, data);
+            const idx = await loadSlotsIndex();
             const meta = {
                 id: slotId, label: slotLabelFor(),
                 clubNames: controlled.map((cid) => clubsById[cid]?.name).filter(Boolean),
@@ -7050,19 +7157,18 @@ function App() {
                 idx[existing] = meta;
             else
                 idx.push(meta);
-            writeSlotsIndex(idx);
+            await writeSlotsIndex(idx);
             setSaveSlots(idx);
         }
         try {
-            attemptSave(payload);
+            await attemptSave(payload);
             return true;
         }
         catch (e) {
-            // A save this large is almost always an old save's accumulated history (match
-            // results, weekly budget snapshots, news) rather than anything actually wrong — so
-            // before giving up, retry once with that history trimmed back to something much
-            // smaller. Recent play and every player/club stays fully intact either way; this
-            // only shortens how far back the older historical lists reach.
+            // IndexedDB's quota is generous enough that this fallback should now be rare, but it
+            // costs nothing to keep: an old save's accumulated history (match results, weekly
+            // budget snapshots, news) trimmed back before giving up entirely. Recent play and
+            // every player/club stays fully intact either way.
             try {
                 const trimmed = {
                     ...payload,
@@ -7070,7 +7176,7 @@ function App() {
                     news: (payload.news || []).slice(0, 40),
                     world: payload.world ? { ...payload.world, clubs: (payload.world.clubs || []).map((c) => ({ ...c, budgetHistory: (c.budgetHistory || []).slice(-16) })) } : payload.world,
                 };
-                attemptSave(trimmed);
+                await attemptSave(trimmed);
                 return true;
             }
             catch (e2) {
@@ -7078,23 +7184,23 @@ function App() {
             }
         }
     }
-    function saveGame() {
+    async function saveGame() {
         setSaveMsg("Saving...");
         let slotId = currentSlotId;
         if (!slotId) {
             slotId = uid("slot");
             setCurrentSlotId(slotId);
         }
-        const ok = saveToSlot(slotId);
+        const ok = await saveToSlot(slotId);
         if (ok)
             setAutosaveFailed(false);
         setSaveMsg(ok ? "Saved!" : "Save failed — storage may be full.");
         setTimeout(() => setSaveMsg(""), 2500);
     }
-    function saveAsNewSlot() {
+    async function saveAsNewSlot() {
         setSaveMsg("Saving as new game...");
         const slotId = uid("slot");
-        if (saveToSlot(slotId)) {
+        if (await saveToSlot(slotId)) {
             setCurrentSlotId(slotId);
             setSaveMsg("Saved as a new game!");
         }
@@ -7102,24 +7208,23 @@ function App() {
             setSaveMsg("Save failed — storage may be full.");
         setTimeout(() => setSaveMsg(""), 2500);
     }
-    function deleteSlot(slotId) {
+    async function deleteSlot(slotId) {
         try {
-            localStorage.removeItem(`booked-pse-save-${slotId}`);
+            await idbDelete(`booked-pse-save-${slotId}`);
         }
         catch (e) { }
-        const idx = loadSlotsIndex().filter((s) => s.id !== slotId);
-        writeSlotsIndex(idx);
+        const idx = (await loadSlotsIndex()).filter((s) => s.id !== slotId);
+        await writeSlotsIndex(idx);
         setSaveSlots(idx);
         if (currentSlotId === slotId)
             setCurrentSlotId(null);
         setConfirmingDeleteSlot(null);
     }
-    function loadFromSlot(slotId) {
+    async function loadFromSlot(slotId) {
         setSaveMsg("Loading...");
         try {
-            const raw = localStorage.getItem(`booked-pse-save-${slotId}`);
-            if (raw) {
-                const data = JSON.parse(raw);
+            const data = await idbGet(`booked-pse-save-${slotId}`);
+            if (data) {
                 // recompute wages from current stat formula, and backfill potential/stadium/release fields for saves
                 // made before those features existed — without this, migrated players would wrongly get the
                 // "no headroom left" development penalty, and old clubs would be missing stadium data.
@@ -7235,23 +7340,56 @@ function App() {
         }
         setTimeout(() => setSaveMsg(""), 3000);
     }
-    // One-time migration: anyone with a save from before multiple slots existed gets it
-    // automatically turned into their first slot, so nobody's progress just disappears.
+    // One-time migration, now doing double duty. It still turns anyone's pre-multi-slot save into
+    // their first slot, exactly as before — but everything now also moves from localStorage into
+    // IndexedDB, the actual fix for "storage full" autosave failures. This runs once per browser:
+    // it copies every existing save across, confirms each one before touching anything, and only
+    // then clears the old localStorage copies to free that quota back up. If IndexedDB itself is
+    // unavailable for some reason, this simply leaves localStorage exactly as it was rather than
+    // risking anyone's save.
     useEffect(() => {
-        try {
-            const legacy = localStorage.getItem("booked-pse-save");
-            const idx = loadSlotsIndex();
-            if (legacy && idx.length === 0) {
-                const data = JSON.parse(legacy);
-                const slotId = uid("slot");
-                localStorage.setItem(`booked-pse-save-${slotId}`, legacy);
-                const clubNames = (data.controlled || []).map((cid) => data.world?.clubs?.find((c) => c.id === cid)?.name).filter(Boolean);
-                writeSlotsIndex([{ id: slotId, label: clubNames.join(" & ") || "Continued game", clubNames, managerNames: (data.managerNames || []).filter(Boolean), season: data.season || 1, week: data.week || 1, isTwoPlayer: (data.controlled || []).length > 1, savedAt: Date.now() }]);
-                localStorage.removeItem("booked-pse-save");
+        (async () => {
+            try {
+                const alreadyMigrated = await idbGet("booked-pse-migrated-from-localstorage");
+                if (!alreadyMigrated) {
+                    const legacy = localStorage.getItem("booked-pse-save");
+                    let idxRaw = JSON.parse(localStorage.getItem("booked-pse-saves-index") || "[]");
+                    if (legacy && idxRaw.length === 0) {
+                        const data = JSON.parse(legacy);
+                        const slotId = uid("slot");
+                        localStorage.setItem(`booked-pse-save-${slotId}`, legacy);
+                        const clubNames = (data.controlled || []).map((cid) => data.world?.clubs?.find((c) => c.id === cid)?.name).filter(Boolean);
+                        idxRaw = [{ id: slotId, label: clubNames.join(" & ") || "Continued game", clubNames, managerNames: (data.managerNames || []).filter(Boolean), season: data.season || 1, week: data.week || 1, isTwoPlayer: (data.controlled || []).length > 1, savedAt: Date.now() }];
+                        localStorage.setItem("booked-pse-saves-index", JSON.stringify(idxRaw));
+                        localStorage.removeItem("booked-pse-save");
+                    }
+                    let allCopiedOk = true;
+                    for (const meta of idxRaw) {
+                        const raw = localStorage.getItem(`booked-pse-save-${meta.id}`);
+                        if (!raw) {
+                            allCopiedOk = false;
+                            continue;
+                        }
+                        try {
+                            await idbSet(`booked-pse-save-${meta.id}`, JSON.parse(raw));
+                        }
+                        catch (e) {
+                            allCopiedOk = false;
+                        }
+                    }
+                    if (allCopiedOk) {
+                        await idbSet("booked-pse-saves-index", idxRaw);
+                        idxRaw.forEach((meta) => localStorage.removeItem(`booked-pse-save-${meta.id}`));
+                        localStorage.removeItem("booked-pse-saves-index");
+                        await idbSet("booked-pse-migrated-from-localstorage", true);
+                    }
+                    // If copying didn't fully succeed, localStorage is left untouched and every save
+                    // is still readable from there — nothing is deleted unless the copy is confirmed.
+                }
             }
-            setSaveSlots(loadSlotsIndex());
-        }
-        catch (e) { }
+            catch (e) { }
+            setSaveSlots(await loadSlotsIndex());
+        })();
     }, []);
     // Silent autosave — fires after every match result and every week advance, once
     // there's an actual game in progress. Always writes to the slot this session is tied to,
@@ -7267,8 +7405,10 @@ function App() {
         const slotId = currentSlotId || uid("slot");
         if (!currentSlotId)
             setCurrentSlotId(slotId);
-        const ok = saveToSlot(slotId);
-        setAutosaveFailed(!ok);
+        (async () => {
+            const ok = await saveToSlot(slotId);
+            setAutosaveFailed(!ok);
+        })();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [matchHistory.length, week, season]);
     // Achievement checks + board sackings — runs after state has actually committed
@@ -8078,6 +8218,19 @@ function App() {
                             mr.icon,
                             " ",
                             mr.text)); })(),
+                        viewingPlayer.activeRequest && (React.createElement("div", { className: "rounded-lg p-3 mb-3 border", style: { backgroundColor: viewingPlayer.activeRequest.status === "promised" ? "#EAF7EF" : "#FFF8E6", borderColor: viewingPlayer.activeRequest.status === "promised" ? C.green : C.amber } },
+                            React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1", style: { color: viewingPlayer.activeRequest.status === "promised" ? C.green : C.amber } }, "\uD83D\uDCAC PLAYER REQUEST"),
+                            React.createElement("div", { className: "text-xs mb-2" },
+                                viewingPlayer.name,
+                                " ",
+                                viewingPlayer.activeRequest.ask,
+                                "."),
+                            viewingPlayer.activeRequest.status === "pending" ? (React.createElement("div", { className: "flex gap-2" },
+                                React.createElement("button", { onClick: () => promiseRequest(viewingPlayer.id), className: "flex-1 py-1.5 rounded-lg text-xs font-bold", style: { backgroundColor: C.green, color: "#fff" } }, "Promise"),
+                                React.createElement("button", { onClick: () => declineRequest(viewingPlayer.id), className: "flex-1 py-1.5 rounded-lg text-xs font-bold border", style: { borderColor: C.border, color: C.sub } }, "Decline"))) : (React.createElement("div", { className: "text-[10px]", style: { color: C.sub } },
+                                "Promised \u2014 due by week ",
+                                viewingPlayer.activeRequest.deadlineWeek,
+                                ". Follow through or he'll take it hard.")))),
                         (viewingPlayer.nationality || viewingPlayer.height || viewingPlayer.weight || viewingPlayer.preferredFoot || viewingPlayer.bodyType) && (React.createElement("div", { className: "rounded-lg p-3 mb-3 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
                             React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-2", style: { color: C.green } }, "PLAYER INFO"),
                             React.createElement("div", { className: "grid grid-cols-2 gap-y-1.5 gap-x-2 text-xs" },
@@ -9550,7 +9703,7 @@ function App() {
                         React.createElement("button", { onClick: saveGame, className: "flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs font-bold", style: { borderColor: C.border } },
                             React.createElement(Ico, { e: "\uD83D\uDCBE", size: 13 }),
                             " Save"),
-                        React.createElement("button", { onClick: () => { setSaveSlots(loadSlotsIndex()); setShowSlotPicker(true); }, className: "flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs font-bold", style: { borderColor: C.border } },
+                        React.createElement("button", { onClick: () => { loadSlotsIndex().then(setSaveSlots); setShowSlotPicker(true); }, className: "flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg border text-xs font-bold", style: { borderColor: C.border } },
                             React.createElement(Ico, { e: "\uD83D\uDCC2", size: 13 }),
                             " Load")),
                     React.createElement("button", { onClick: saveAsNewSlot, className: "w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold", style: { color: C.green } },
