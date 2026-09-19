@@ -2494,7 +2494,19 @@ function weeklyMerchIncome(club) {
     const popFactor = 0.4 + (club.fanPopularity ?? 50) / 100;
     return Math.round(ref * 0.0022 * popFactor);
 }
-function applyClubMatchResult(c, gf, ga) {
+function withRecordWin(c, gf, ga, opponentId, season) {
+    // A lifetime record book, not a per-season one — deliberately never reset, so a
+    // heavy win from years ago stays the benchmark until something genuinely beats it.
+    // Margin is the sole criterion (an 8-0 beats a 5-0 even though both are 5+ goals),
+    // matching how a real record book works.
+    if (gf <= ga)
+        return {};
+    const margin = gf - ga;
+    if (margin <= (c.recordWinMargin || 0))
+        return {};
+    return { recordWinMargin: margin, recordWinScoreline: `${gf}-${ga}`, recordWinOpponentId: opponentId || null, recordWinSeason: season || null };
+}
+function applyClubMatchResult(c, gf, ga, opponentId, season) {
     let won = c.won, drawn = c.drawn, lost = c.lost, pts = c.pts;
     let careerWon = c.careerWon || 0, careerDrawn = c.careerDrawn || 0, careerLost = c.careerLost || 0, careerPts = c.careerPts || 0;
     let unbeatenStreak = c.unbeatenStreak || 0;
@@ -2527,9 +2539,10 @@ function applyClubMatchResult(c, gf, ga) {
         played: c.played + 1, won, drawn, lost, gf: c.gf + gf, ga: c.ga + ga, pts,
         careerPlayed: (c.careerPlayed || 0) + 1, careerWon, careerDrawn, careerLost, careerGf: (c.careerGf || 0) + gf, careerGa: (c.careerGa || 0) + ga, careerPts,
         fanPopularity, unbeatenStreak, bestUnbeatenStreak,
+        ...withRecordWin(c, gf, ga, opponentId, season),
     };
 }
-function applyPopularityOnly(c, gf, ga, isDerby) {
+function applyPopularityOnly(c, gf, ga, isDerby, opponentId, season) {
     let fanPopularity = c.fanPopularity ?? 50;
     // A derby carries real extra stakes — winning one means more to the fans than an ordinary
     // three points, and losing one stings harder too.
@@ -2540,7 +2553,7 @@ function applyPopularityOnly(c, gf, ga, isDerby) {
         fanPopularity = clamp(fanPopularity + 0.3, 5, 100);
     else
         fanPopularity = clamp(fanPopularity - 1 * derbyMult, 5, 100);
-    return { ...c, fanPopularity };
+    return { ...c, fanPopularity, ...withRecordWin(c, gf, ga, opponentId, season) };
 }
 function weeklyWageBill(clubId, players) {
     return players.filter((p) => p.clubId === clubId).reduce((s, p) => s + p.wage, 0);
@@ -3142,6 +3155,38 @@ function Pitch({ club, squadPlayers, onAssign, onSetInstruction }) {
                         " ",
                         opt.label)))))))))));
 }
+function ClubRecordsPanel({ club, clubsById }) {
+    // A lifetime record book — deliberately separate from the season-scoped Trophy
+    // Cabinet above it. Attendance and unbeaten-streak fields already exist on every
+    // club for other reasons; this is the first place either is actually shown to
+    // the player rather than just used internally.
+    const hasWinRecord = (club.recordWinMargin || 0) > 0;
+    const opponent = club.recordWinOpponentId ? clubsById[club.recordWinOpponentId] : null;
+    const hasAnyRecord = hasWinRecord || (club.recordAttendance || 0) > 0 || (club.bestUnbeatenStreak || 0) > 0;
+    return (React.createElement("div", { className: "rounded-lg p-4 border mb-4", style: { backgroundColor: C.card, borderColor: C.border } },
+        React.createElement("div", { className: "flex items-center gap-2 text-[11px] tracking-widest font-bold mb-2", style: { color: C.green } },
+            React.createElement(Ico, { e: "\uD83D\uDCD6", size: 13 }),
+            " CLUB RECORDS"),
+        !hasAnyRecord ? (React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Nothing on the books yet.")) : (React.createElement("div", { className: "space-y-1" },
+            hasWinRecord && (React.createElement("div", { className: "text-xs rounded-lg px-3 py-1.5 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
+                React.createElement("span", { style: { color: C.sub } }, "Record win: "),
+                React.createElement("span", { className: "font-bold" },
+                    club.recordWinScoreline,
+                    opponent ? ` vs ${opponent.name}` : ""),
+                club.recordWinSeason ? React.createElement("span", { style: { color: C.sub } },
+                    " (Season ",
+                    club.recordWinSeason,
+                    ")") : null)),
+            (club.recordAttendance || 0) > 0 && (React.createElement("div", { className: "text-xs rounded-lg px-3 py-1.5 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
+                React.createElement("span", { style: { color: C.sub } }, "Record home attendance: "),
+                React.createElement("span", { className: "font-bold" }, club.recordAttendance.toLocaleString()))),
+            (club.bestUnbeatenStreak || 0) > 0 && (React.createElement("div", { className: "text-xs rounded-lg px-3 py-1.5 border", style: { backgroundColor: C.cardAlt, borderColor: C.border } },
+                React.createElement("span", { style: { color: C.sub } }, "Longest unbeaten run: "),
+                React.createElement("span", { className: "font-bold" },
+                    club.bestUnbeatenStreak,
+                    " match",
+                    club.bestUnbeatenStreak === 1 ? "" : "es")))))));
+}
 function ClubDetail({ club, squad, history, clubsById, onBack, onSign, onView, week, season, viewerClubId }) {
     const [seasonFilter, setSeasonFilter] = useState("all");
     const seasons = Array.from(new Set(history.map((h) => h.season))).sort((a, b) => b - a);
@@ -3236,6 +3281,7 @@ function ClubDetail({ club, squad, history, clubsById, onBack, onSign, onView, w
                     t.cupName,
                     " Winners \u2014 Season ",
                     t.season)))))),
+        React.createElement(ClubRecordsPanel, { club: club, clubsById: clubsById }),
         React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5", style: { color: C.sub } }, "SQUAD"),
         React.createElement("div", { className: "space-y-1 mb-4 max-h-64 overflow-y-auto" }, [...squad].sort((a, b) => b.overall - a.overall).map((p) => {
             const onCooldown = p.transferCooldownUntil && week < p.transferCooldownUntil;
@@ -4467,7 +4513,7 @@ function App() {
                 setDivisionCups((cups) => ({ ...cups, [m.cupKey]: { ...cups[m.cupKey], rounds: [...cups[m.cupKey].rounds.slice(0, -1), { ...last, ties: updatedTies }] } }));
             setMatchHistory((mh) => [{ id: uid("mh"), season, week, divisionId: "cup", isCup: true, cupKey: m.cupKey, homeId: m.homeId, awayId: m.awayId, homeGoals: hg, awayGoals: ag, penaltyScore }, ...mh].slice(0, 4000));
             finalizeCupTieResult(m.cupKey, updatedTies, last?.byeId);
-            setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === m.homeId ? { ...applyPopularityOnly(c, hg, ag, areRivals(m.homeId, m.awayId)), budget: c.budget + homeIncome.amount, lastAttendance: homeIncome.attendance, lastTicketPrice: homeIncome.price } : c.id === m.awayId ? { ...applyPopularityOnly(c, ag, hg, areRivals(m.homeId, m.awayId)), budget: c.budget + awayIncome.amount } : c)) }));
+            setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === m.homeId ? { ...applyPopularityOnly(c, hg, ag, areRivals(m.homeId, m.awayId), m.awayId, season), budget: c.budget + homeIncome.amount, lastAttendance: homeIncome.attendance, lastTicketPrice: homeIncome.price, recordAttendance: Math.max(c.recordAttendance || 0, homeIncome.attendance) } : c.id === m.awayId ? { ...applyPopularityOnly(c, ag, hg, areRivals(m.homeId, m.awayId), m.homeId, season), budget: c.budget + awayIncome.amount } : c)) }));
         }
         else if (m.isPlayoff) {
             let winnerId = hg > ag ? m.homeId : ag > hg ? m.awayId : null;
@@ -4484,7 +4530,7 @@ function App() {
                 ? `🎟️ Playoff: ${clubsById[m.promoClubId]?.name} beat ${clubsById[m.surviveClubId]?.name}${penaltyScore ? ` (${penaltyScore.home}-${penaltyScore.away} on penalties)` : ""} — both promotion AND relegation confirmed at that boundary.`
                 : `🎟️ Playoff: ${clubsById[m.surviveClubId]?.name} beat ${clubsById[m.promoClubId]?.name}${penaltyScore ? ` (${penaltyScore.home}-${penaltyScore.away} on penalties)` : ""} — survive! Nothing extra moves at that boundary.`;
             setNews((n) => [{ id: uid("n"), text: newsText, clubIds: [m.homeId, m.awayId], week, season }, ...n].slice(0, 150));
-            setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === m.homeId ? { ...applyPopularityOnly(c, hg, ag, areRivals(m.homeId, m.awayId)), budget: c.budget + homeIncome.amount, lastAttendance: homeIncome.attendance, lastTicketPrice: homeIncome.price } : c.id === m.awayId ? { ...applyPopularityOnly(c, ag, hg, areRivals(m.homeId, m.awayId)), budget: c.budget + awayIncome.amount } : c)) }));
+            setWorld((w) => ({ ...w, clubs: w.clubs.map((c) => (c.id === m.homeId ? { ...applyPopularityOnly(c, hg, ag, areRivals(m.homeId, m.awayId), m.awayId, season), budget: c.budget + homeIncome.amount, lastAttendance: homeIncome.attendance, lastTicketPrice: homeIncome.price, recordAttendance: Math.max(c.recordAttendance || 0, homeIncome.attendance) } : c.id === m.awayId ? { ...applyPopularityOnly(c, ag, hg, areRivals(m.homeId, m.awayId), m.homeId, season), budget: c.budget + awayIncome.amount } : c)) }));
         }
         else if (m.isFriendly) {
             // Deliberately almost nothing persists — no league table, no cup progress, no gate
@@ -4504,9 +4550,9 @@ function App() {
                         return c;
                     const isHome = c.id === m.homeId;
                     const gf = isHome ? hg : ag, ga = isHome ? ag : hg;
-                    const updated = applyClubMatchResult(c, gf, ga);
+                    const updated = applyClubMatchResult(c, gf, ga, isHome ? m.awayId : m.homeId, season);
                     const inc = isHome ? homeIncome : awayIncome;
-                    return { ...updated, budget: updated.budget + inc.amount, lastMatchIncome: inc.amount, ...(isHome ? { lastAttendance: inc.attendance, lastTicketPrice: inc.price } : {}) };
+                    return { ...updated, budget: updated.budget + inc.amount, lastMatchIncome: inc.amount, ...(isHome ? { lastAttendance: inc.attendance, lastTicketPrice: inc.price, recordAttendance: Math.max(updated.recordAttendance || 0, inc.attendance) } : {}) };
                 }),
             }));
             setMatchHistory((mh) => [{ id: uid("mh"), season, week, divisionId: clubsById[m.homeId]?.divisionId, isCup: false, homeId: m.homeId, awayId: m.awayId, homeGoals: hg, awayGoals: ag }, ...mh].slice(0, 4000));
@@ -4649,9 +4695,9 @@ function App() {
                     const isHome = c.id === fx.homeId;
                     const gf = isHome ? sim.homeGoals : sim.awayGoals, ga = isHome ? sim.awayGoals : sim.homeGoals;
                     const result = gf > ga ? "win" : gf === ga ? "draw" : "loss";
-                    const updated = applyClubMatchResult(c, gf, ga);
+                    const updated = applyClubMatchResult(c, gf, ga, isHome ? fx.awayId : fx.homeId, season);
                     const inc = matchIncome(c, isHome, result);
-                    return { ...updated, budget: updated.budget + inc.amount, lastMatchIncome: inc.amount, ...(isHome ? { lastAttendance: inc.attendance, lastTicketPrice: inc.price } : {}) };
+                    return { ...updated, budget: updated.budget + inc.amount, lastMatchIncome: inc.amount, ...(isHome ? { lastAttendance: inc.attendance, lastTicketPrice: inc.price, recordAttendance: Math.max(updated.recordAttendance || 0, inc.attendance) } : {}) };
                 });
                 const scorerCounts = {};
                 sim.events.forEach((e) => { scorerCounts[e.scorerId] = (scorerCounts[e.scorerId] || 0) + 1; });
@@ -4861,9 +4907,9 @@ function App() {
         const isSameCityDerby = home?.city && home.city === away?.city;
         const newClubs = clearInjuredFromLineups(clubs.map((c) => {
             if (c.id === t.homeId)
-                return { ...applyPopularityOnly(c, sim.homeGoals, sim.awayGoals, isSameCityDerby), budget: c.budget + cupHomeIncome.amount, lastMatchIncome: cupHomeIncome.amount, lastAttendance: cupHomeIncome.attendance, lastTicketPrice: cupHomeIncome.price, careerMotm: motmPlayerObj?.clubId === c.id ? (c.careerMotm || 0) + 1 : (c.careerMotm || 0) };
+                return { ...applyPopularityOnly(c, sim.homeGoals, sim.awayGoals, isSameCityDerby, t.awayId, season), budget: c.budget + cupHomeIncome.amount, lastMatchIncome: cupHomeIncome.amount, lastAttendance: cupHomeIncome.attendance, lastTicketPrice: cupHomeIncome.price, recordAttendance: Math.max(c.recordAttendance || 0, cupHomeIncome.attendance), careerMotm: motmPlayerObj?.clubId === c.id ? (c.careerMotm || 0) + 1 : (c.careerMotm || 0) };
             if (c.id === t.awayId)
-                return { ...applyPopularityOnly(c, sim.awayGoals, sim.homeGoals, isSameCityDerby), budget: c.budget + cupAwayIncome.amount, lastMatchIncome: cupAwayIncome.amount, careerMotm: motmPlayerObj?.clubId === c.id ? (c.careerMotm || 0) + 1 : (c.careerMotm || 0) };
+                return { ...applyPopularityOnly(c, sim.awayGoals, sim.homeGoals, isSameCityDerby, t.homeId, season), budget: c.budget + cupAwayIncome.amount, lastMatchIncome: cupAwayIncome.amount, careerMotm: motmPlayerObj?.clubId === c.id ? (c.careerMotm || 0) + 1 : (c.careerMotm || 0) };
             return c;
         }), new Set(Object.keys(injuryMap)));
         const penaltyText = penaltyScoreAi ? ` (${clubsById[winnerId]?.name} win ${penaltyScoreAi.home}-${penaltyScoreAi.away} on penalties)` : "";
@@ -8885,6 +8931,7 @@ function App() {
                             t.cupName,
                             " Winners \u2014 Season ",
                             t.season)))))),
+                React.createElement(ClubRecordsPanel, { club: activeClub, clubsById: clubsById }),
                 (() => {
                     const items = news.filter((n) => (n.clubIds || []).includes(activeClubId)).slice(0, 3);
                     if (items.length === 0)
