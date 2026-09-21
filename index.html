@@ -3764,6 +3764,7 @@ function onlineFairPlayProblem(payload, base = STATIC_WORLD_DATA) {
 // One row per game is overwritten each time, so it never grows. Players are trimmed to their plain fields (no career logs).
 const ONLINE_LIVE_POST_MS = 3000;
 const ONLINE_LIVE_POLL_MS = 3000;
+const H2H_WAIT_MS = 45000; // how long a paused match / half time waits for the other manager before carrying on without them
 // A watcher only needs what the live screen draws (names, numbers, positions, the ratings a live rating is worked out from...).
 // A full player carries ~70 fields, mostly career bookkeeping; this keeps ~30 plain ones, which is a third of the size.
 const ONLINE_WATCH_FIELDS = ["id", "name", "position", "clubId", "jerseyNumber", "overall", "age", "injuredWeeks", "injuryType", "morale", "fatigue", "pace", "shooting", "passing", "defending", "physical", "goalkeeping", "teamwork", "influence", "versatility", "consistency", "saves", "shots", "goals", "assists", "goalsConceded", "nationality", "height", "bodyType"];
@@ -3783,7 +3784,7 @@ function onlineSlimMatch(m, clubsById) {
     const goals = (m.events || []).filter((e) => e.kind === "goal");
     const hg = goals.filter((e) => e.teamId === m.homeId).length, ag = goals.filter((e) => e.teamId === m.awayId).length;
     const name = (id) => (clubsById && clubsById[id] ? clubsById[id].name : id);
-    return { minute: m.minute, title: `${name(m.homeId)} v ${name(m.awayId)}`, score: `${hg}-${ag}`, match: slim };
+    return { minute: m.minute, title: `${name(m.homeId)} v ${name(m.awayId)}`, score: `${hg}-${ag}`, matchId: String(m.id), opp: m.h2h ? m.h2h.oppSeat : null, match: slim };
 }
 // ---------- end watching a live match ----------
 // ---------- Online games ----------
@@ -3893,8 +3894,13 @@ function createOnlineClient({ cloud, now = () => Date.now() }) {
             return await cloud.rpc("online_delete", { p_id: game.id });
         },
         // Live match watching (see online-setup-4.sql): the holder posts, everyone else reads.
-        async livePost(id, state, snap) { return await cloud.rpc("online_live_post", { p_id: id, p_state: state, p_minute: snap.minute, p_title: snap.title, p_score: snap.score, p_match: snap.match }); },
-        async liveHead(id) { const rows = await cloud.restGet(`online_live?game_id=eq.${id}&select=seat,state,minute,title,score,updated_at`); return rows[0] || null; },
+        // livePost answers whether the opponent (in a head-to-head match) has joined it.
+        async livePost(id, state, snap) { return await cloud.rpc("online_live_post", { p_id: id, p_state: state, p_minute: snap.minute, p_title: snap.title, p_score: snap.score, p_match: snap.match, p_match_id: snap.matchId ?? null, p_opp: snap.opp ?? null }); },
+        async liveHead(id) { const rows = await cloud.restGet(`online_live?game_id=eq.${id}&select=seat,state,minute,title,score,updated_at,match_id,opp_seat,opp_joined`); return rows[0] || null; },
+        // Head-to-head: the other manager joins their own live match and sends commands for their own side to the device running it.
+        async liveJoin(id, join = true, beat = false) { return await cloud.rpc("online_live_join", { p_id: id, p_join: join, p_beat: beat }); },
+        async cmdPost(id, cmd) { return await cloud.rpc("online_cmd_post", { p_id: id, p_cmd: cmd }); },
+        async cmdTake(id, after) { return await cloud.rpc("online_cmd_take", { p_id: id, p_after: after || 0 }); },
         async liveGet(id) { const rows = await cloud.restGet(`online_live?game_id=eq.${id}&select=state,minute,updated_at,match`); return rows[0] || null; },
         async join(code, seat, name) { return await cloud.rpc("online_join", { p_code: String(code || "").trim(), p_seat: seat, p_name: name }); },
         async takeTurn(id) { return await cloud.rpc("online_take_turn", { p_id: id }); },
@@ -4846,7 +4852,7 @@ function useGameState(initial) {
     return [value, guarded];
 }
 function onlineNamesOf(game) { return (game?.seats || []).map((s) => s.name || s.club_name).join(" & "); }
-function OnlineBar({ game, status, toast, busy, onTake, onEnd, onLeave, onCheck, live, onWatch }) {
+function OnlineBar({ game, status, toast, busy, onTake, onEnd, onLeave, onCheck, live, onWatch, onJoin }) {
     const [confirmLeave, setConfirmLeave] = useState(false);
     const st = status;
     const tone = st.mode === "my-turn" ? C.green : st.mode === "waiting" ? C.amber : C.border;
@@ -4873,13 +4879,16 @@ function OnlineBar({ game, status, toast, busy, onTake, onEnd, onLeave, onCheck,
         live && (React.createElement("div", { className: "mt-1.5 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2", style: { backgroundColor: C.cardAlt } },
             React.createElement("div", { className: "text-[11px] font-bold" },
                 "\uD83D\uDD34 LIVE \u2014 ",
+                live.mine ? "this is YOUR match: " : "",
                 live.title,
                 " \u00B7 ",
                 live.score,
                 " \u00B7 ",
                 live.minute,
                 "'"),
-            React.createElement("button", { onClick: onWatch, className: "px-3 py-1 rounded-lg text-[10px] font-bold flex-shrink-0", style: { backgroundColor: C.red, color: "#FFFFFF" } }, "\uD83D\uDC41 Watch live"))),
+            React.createElement("div", { className: "flex items-center gap-1.5 flex-shrink-0" },
+                live.mine && React.createElement("button", { onClick: onJoin, className: "px-3 py-1 rounded-lg text-[10px] font-bold", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "\uD83C\uDFAE Join your match"),
+                React.createElement("button", { onClick: onWatch, className: "px-3 py-1 rounded-lg text-[10px] font-bold", style: { backgroundColor: live.mine ? "transparent" : C.red, color: live.mine ? C.sub : "#FFFFFF", border: live.mine ? `1px solid ${C.border}` : "none" } }, live.mine ? "Just watch" : "👁 Watch live")))),
         game.code && st.mode !== "open" && React.createElement("div", { className: "text-[9px] mt-0.5", style: { color: C.sub } },
             "Invite code ",
             game.code),
@@ -5746,12 +5755,23 @@ function App() {
     activeMatchRef.current = activeMatch;
     // watching someone else's live match (online): the small "who's playing what" row, and the snapshot being shown
     const [liveHead, setLiveHead] = useState(null);
+    const liveHeadRef = useRef(null);
+    liveHeadRef.current = liveHead;
     const [watching, setWatching] = useState(false);
     const [spectated, setSpectated] = useState(null);
     const watchingRef = useRef(false);
     watchingRef.current = watching;
     const liveSeen = useRef({ stamp: null, at: 0 });
     const lastSnapRef = useRef(null);
+    // head-to-head (two online managers playing each other): this device has JOINED its own match and manages its own side remotely
+    const [h2hJoined, setH2hJoined] = useState(false);
+    const h2hJoinedRef = useRef(false);
+    h2hJoinedRef.current = h2hJoined;
+    const spectatedRef = useRef(null);
+    spectatedRef.current = spectated;
+    const lastCmdId = useRef(0);
+    const livePostNow = useRef(null);
+    const [, setSecondTick] = useState(0);
     const [subPanel, setSubPanel] = useState(null);
     const [statsPanel, setStatsPanel] = useState(null);
     const [formationPanel, setFormationPanel] = useState(null);
@@ -6237,7 +6257,7 @@ function App() {
     // other manager's side is never in your hands — it plays on his saved lineup, tactics and set-piece takers.
     function managesSide(clubId) {
         if (watching && !activeMatch)
-            return false;
+            return h2hJoined && !!online && controlled[online.seat] === clubId;
         return controlled.includes(clubId) && (!online || controlled[online.seat] === clubId);
     }
     function onlineStatusNow() { const o = onlineRef.current; return o ? onlineStatus(o.game, o.userId) : null; }
@@ -6482,6 +6502,55 @@ function App() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [phase, world, controlled]);
     /* ---------- watching a live match ---------- */
+    function applyRemoteCmds(rows) {
+        const m = activeMatchRef.current;
+        if (!m || !m.h2h)
+            return;
+        const side = m.h2h.oppSide;
+        let running = m.running;
+        for (const row of rows) {
+            const c = row.cmd || {};
+            if (c.side && c.side !== side)
+                continue;
+            if (c.t === "pause") {
+                if (running && !m.atHalftime) {
+                    running = false;
+                    setActiveMatch((x) => (x && x.running ? { ...x, running: false, h2h: x.h2h ? { ...x.h2h, oppReady: false, pausedAt: Date.now() } : x.h2h } : x));
+                }
+            }
+            else if (c.t === "ready")
+                setActiveMatch((x) => (x && x.h2h ? { ...x, h2h: { ...x.h2h, oppReady: true } } : x));
+            else if (c.t === "sub" && !running) {
+                const inP = ((side === "home" ? m.homeBench : m.awayBench) || []).find((pl) => pl.id === c.inId);
+                if (inP)
+                    makeSub(side, c.out, inP);
+            }
+            else if (c.t === "formation" && !running && FORMATIONS[c.v])
+                changeFormationMidMatch(side, c.v);
+            else if (c.t === "tempo" && !running && ["defensive", "balanced", "attacking"].includes(c.v))
+                changeTempoMidMatch(side, c.v);
+            else if (c.t === "pressing" && !running && ["low", "medium", "high"].includes(c.v))
+                changePressingMidMatch(side, c.v);
+            else if (c.t === "talk" && m.atHalftime && ["calm", "rousing", "demanding"].includes(c.tone))
+                giveTeamTalk(side, c.tone);
+        }
+    }
+    // The other manager joins their own head-to-head match (or just watches it).
+    async function onlineJoinMatch() {
+        const cur = onlineRef.current;
+        if (!cur)
+            return;
+        try {
+            await onlineApi().liveJoin(cur.game.id, true);
+        }
+        catch (e) {
+            flashOnline(e.message || "Couldn't join the match.");
+            return;
+        }
+        setH2hJoined(true);
+        h2hJoinedRef.current = true;
+        await onlineWatchStart();
+    }
     async function onlineWatchStart() {
         const cur = onlineRef.current;
         if (!cur)
@@ -6496,6 +6565,13 @@ function App() {
         catch (e) { }
     }
     function onlineWatchStop() {
+        if (h2hJoinedRef.current && onlineRef.current) {
+            // (nothing to leave once the match has finished)
+            if (!liveHeadRef.current || liveHeadRef.current.state !== "ended")
+                onlineApi().liveJoin(onlineRef.current.game.id, false).catch(() => { });
+            h2hJoinedRef.current = false;
+        }
+        setH2hJoined(false);
         setWatching(false);
         watchingRef.current = false;
         setSpectated(null);
@@ -6506,7 +6582,8 @@ function App() {
             return undefined;
         const gameId = online.game.id;
         let lastKey = "";
-        const post = async (state) => {
+        let lastPostAt = 0;
+        const post = async (state, force) => {
             let snap;
             if (state === "ended")
                 snap = lastSnapRef.current;
@@ -6514,25 +6591,78 @@ function App() {
                 const m = activeMatchRef.current;
                 if (!m)
                     return;
-                const key = `${m.minute}:${m.running}:${m.atHalftime}:${(m.events || []).length}:${(m.commentary || []).length}`;
-                if (key === lastKey)
+                const key = `${m.minute}:${m.running}:${m.atHalftime}:${(m.events || []).length}:${(m.commentary || []).length}:${m.h2h ? m.h2h.joined + ":" + m.h2h.oppReady : ""}:${m.homeTempo}${m.awayTempo}${m.homePressing}${m.awayPressing}:${(m.homeXI || []).map((x) => x.id).join("").length}`;
+                // nothing changed: still post every few seconds, as a sign of life (a paused match must not look finished, and a
+                // head-to-head opponent's joining is noticed through the answer)
+                if (!force && key === lastKey && Date.now() - lastPostAt < 6000)
                     return;
                 lastKey = key;
+                lastPostAt = Date.now();
                 snap = onlineSlimMatch(m, clubsById);
                 lastSnapRef.current = snap;
             }
             if (!snap)
                 return;
             try {
-                await onlineApi().livePost(gameId, state, snap);
+                const joined = await onlineApi().livePost(gameId, state, snap);
+                const cur = activeMatchRef.current;
+                if (typeof joined === "boolean" && cur && cur.h2h && cur.h2h.joined !== joined)
+                    setActiveMatch((x) => (x && x.h2h ? { ...x, h2h: { ...x.h2h, joined, oppReady: false, pausedAt: joined && !x.running ? Date.now() : x.h2h.pausedAt } } : x));
             }
             catch (e) { }
         };
+        livePostNow.current = () => post("live", true);
         post("live");
         const id = setInterval(() => post("live"), ONLINE_LIVE_POST_MS);
-        return () => { clearInterval(id); post("ended"); };
+        return () => { clearInterval(id); livePostNow.current = null; post("ended"); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [online ? online.holding : false, !!activeMatch, online ? online.game.id : null]);
+    // Head-to-head, on the device running the match: collect what the joined manager has sent and apply it to THEIR side.
+    useEffect(() => {
+        if (!online || !online.holding || !activeMatch || !activeMatch.h2h || !activeMatch.h2h.joined)
+            return undefined;
+        const gameId = online.game.id;
+        const tick = async () => {
+            try {
+                const rows = await onlineApi().cmdTake(gameId, lastCmdId.current);
+                if (!rows || !rows.length)
+                    return;
+                lastCmdId.current = rows[rows.length - 1].id;
+                applyRemoteCmds(rows);
+                if (livePostNow.current)
+                    livePostNow.current();
+            }
+            catch (e) { }
+        };
+        const id = setInterval(tick, 1500);
+        return () => clearInterval(id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [online ? online.holding : false, !!activeMatch, activeMatch && activeMatch.h2h ? activeMatch.h2h.joined : false, online ? online.game.id : null]);
+    useEffect(() => {
+        if (activeMatch && activeMatch.h2h && activeMatch.atHalftime && !activeMatch.h2h.halfAt)
+            setActiveMatch((x) => (x && x.h2h && x.atHalftime && !x.h2h.halfAt ? { ...x, h2h: { ...x.h2h, halfAt: Date.now() } } : x));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeMatch ? activeMatch.atHalftime : false]);
+    // The joined manager's device says "still here" every few seconds (a closed tab must not hold a match up), and everyone
+    // in a head-to-head match gets a once-a-second refresh so the "waiting for..." lines count down.
+    useEffect(() => {
+        if (!online || !watching || !h2hJoined)
+            return undefined;
+        const id = setInterval(() => {
+            if (liveHeadRef.current && liveHeadRef.current.state === "ended")
+                return;
+            onlineApi().liveJoin(online.game.id, true, true).catch(() => { });
+        }, 5000);
+        return () => clearInterval(id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [online ? online.game.id : null, watching, h2hJoined]);
+    useEffect(() => {
+        const active = (activeMatch && activeMatch.h2h && activeMatch.h2h.joined) || (watching && h2hJoined);
+        if (!active)
+            return undefined;
+        const id = setInterval(() => setSecondTick((n) => n + 1), 1000);
+        return () => clearInterval(id);
+    }, [!!(activeMatch && activeMatch.h2h && activeMatch.h2h.joined), watching && h2hJoined]);
     // Everyone else: while someone else holds the table, look for a live match every few seconds (a small row), and while
     // watching, fetch the full snapshot whenever it has changed.
     useEffect(() => {
@@ -6623,11 +6753,22 @@ function App() {
         return () => clearInterval(id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [online ? online.holding : false]);
+    // Two online managers playing each other: the device running the match notes who the other one is, so they can join it.
+    function h2hFor(fx, isFriendly) {
+        if (!online || isFriendly)
+            return undefined;
+        const mine = controlled[online.seat];
+        const oppClub = fx.homeId === mine ? fx.awayId : fx.awayId === mine ? fx.homeId : null;
+        if (!oppClub || !controlled.includes(oppClub))
+            return undefined;
+        return { oppSeat: controlled.indexOf(oppClub), oppSide: fx.homeId === mine ? "away" : "home", joined: false, oppReady: false, pausedAt: Date.now(), halfAt: 0 };
+    }
     function openMatch(fixtureOrTie, isCup, isFriendly) {
         if (ONLINE_GUARD.locked) {
             onlineBlocked();
             return;
         }
+        lastCmdId.current = 0;
         // Refuse to start a match for either side if a controlled club hasn't chosen a formation
         // yet, or has a formation but hasn't actually filled every slot — otherwise xiFromLineup's
         // fallback (there for AI clubs, which never manually pick a lineup at all) would silently
@@ -6688,7 +6829,7 @@ function App() {
                 playerStats: {}, stamina, homeFormation: home.formation, awayFormation: away.formation,
                 homeTempo: home.tempo || "balanced", awayTempo: away.tempo || "balanced",
                 homePressing: home.pressing || "medium", awayPressing: away.pressing || "medium", ballPosition: 0,
-                homePossession: 0, awayPossession: 0, weather: rollWeather(),
+                homePossession: 0, awayPossession: 0, weather: rollWeather(), h2h: h2hFor(fixtureOrTie, isFriendly),
             });
             setSubPanel(null);
             setStatsPanel(null);
@@ -6848,7 +6989,43 @@ function App() {
             };
         });
     }
-    function toggleMatchRunning() { setActiveMatch((m) => (m ? { ...m, running: !m.running } : m)); }
+    function remoteCmd(cmd) {
+        const cur = onlineRef.current;
+        if (!cur || !h2hJoinedRef.current)
+            return;
+        onlineApi().cmdPost(cur.game.id, cmd).then(() => {
+            // the match's device applies it within a couple of seconds and posts a fresh snapshot: fetch it soon
+            setTimeout(async () => {
+                try {
+                    const full = await onlineApi().liveGet(cur.game.id);
+                    if (full && full.match && watchingRef.current)
+                        setSpectated({ ...full.match });
+                }
+                catch (e) { }
+            }, 2200);
+        }).catch((e) => flashOnline(e.message || "That didn't reach the match."));
+    }
+    function toggleMatchRunning() {
+        if (watching && !activeMatch) {
+            if (h2hJoinedRef.current) {
+                const sm = spectatedRef.current;
+                remoteCmd(sm && sm.running ? { t: "pause" } : { t: "ready" });
+            }
+            return;
+        }
+        const cur = activeMatchRef.current;
+        if (cur && !cur.running && cur.h2h && cur.h2h.joined && !cur.h2h.oppReady && Date.now() - cur.h2h.pausedAt < H2H_WAIT_MS) {
+            const opp = online && online.game.seats[cur.h2h.oppSeat];
+            flashOnline(`Waiting for ${(opp && opp.name) || "the other manager"} to be ready — the match goes on when they are (or after ${Math.ceil((H2H_WAIT_MS - (Date.now() - cur.h2h.pausedAt)) / 1000)} s).`);
+            return;
+        }
+        setActiveMatch((m) => {
+            if (!m)
+                return m;
+            const running = !m.running;
+            return { ...m, running, h2h: m.h2h ? { ...m.h2h, oppReady: false, pausedAt: running ? m.h2h.pausedAt : Date.now() } : m.h2h };
+        });
+    }
     function submitPenaltyTakers() {
         setActiveMatch((m) => {
             if (!m)
@@ -6906,8 +7083,21 @@ function App() {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeMatch?.events]);
-    function continueFromHalftime() { setActiveMatch((m) => (m ? { ...m, atHalftime: false, running: true, ballPosition: 0 } : m)); setSubPanel(null); }
+    function continueFromHalftime() {
+        const cur = activeMatchRef.current;
+        if (cur && cur.h2h && cur.h2h.joined && !cur[cur.h2h.oppSide + "TeamTalkGiven"] && Date.now() - (cur.h2h.halfAt || Date.now()) < H2H_WAIT_MS) {
+            const opp = online && online.game.seats[cur.h2h.oppSeat];
+            flashOnline(`Waiting for ${(opp && opp.name) || "the other manager"}'s half-time team talk (or ${Math.ceil((H2H_WAIT_MS - (Date.now() - cur.h2h.halfAt)) / 1000)} s)…`);
+            return;
+        }
+        setActiveMatch((m) => (m ? { ...m, atHalftime: false, running: true, ballPosition: 0 } : m));
+        setSubPanel(null);
+    }
     function giveTeamTalk(side, tone) {
+        if (watching && !activeMatch) {
+            remoteCmd({ t: "talk", side, tone });
+            return;
+        }
         setActiveMatch((m) => {
             if (!m)
                 return m;
@@ -6970,6 +7160,11 @@ function App() {
         });
     }
     function makeSub(side, outId, inPlayer) {
+        if (watching && !activeMatch) {
+            remoteCmd({ t: "sub", side, out: outId, inId: inPlayer.id });
+            setSubPanel(null);
+            return;
+        }
         setActiveMatch((m) => {
             if (!m)
                 return m;
@@ -6998,6 +7193,11 @@ function App() {
         setSubPanel(null);
     }
     function changeFormationMidMatch(side, newFormation) {
+        if (watching && !activeMatch) {
+            remoteCmd({ t: "formation", side, v: newFormation });
+            setFormationPanel(null);
+            return;
+        }
         setActiveMatch((m) => {
             if (!m)
                 return m;
@@ -7022,6 +7222,10 @@ function App() {
         setFormationPanel(null);
     }
     function changeTempoMidMatch(side, tempo) {
+        if (watching && !activeMatch) {
+            remoteCmd({ t: "tempo", side, v: tempo });
+            return;
+        }
         setActiveMatch((m) => {
             if (!m)
                 return m;
@@ -7031,6 +7235,10 @@ function App() {
         });
     }
     function changePressingMidMatch(side, pressing) {
+        if (watching && !activeMatch) {
+            remoteCmd({ t: "pressing", side, v: pressing });
+            return;
+        }
         setActiveMatch((m) => {
             if (!m)
                 return m;
@@ -10684,7 +10892,7 @@ function App() {
                 React.createElement(GuideSection, { title: "Manager Career & Leaderboard", sub: guideSub, dark: dark, defaultOpen: false }, "Manager \u2192 Leaderboard shows every manager in the game ranked by reputation, and tapping into any of them \u2014 yours included \u2014 shows a genuine Career Achievements summary, a real trophy total built from what they've actually won across their career, plus a season-by-season breakdown of every club they've managed."),
                 React.createElement(GuideSection, { title: "Season 1 Restrictions", sub: guideSub, dark: dark, defaultOpen: false }, "A handful of things are deliberately locked away for your first season, so early progress has to be earned rather than bought or picked on day one: Scouting (unlocks Season 2), the Youth Academy (Season 2), Expand Capacity (Season 2), Upgrade Facilities (Season 3, then capped to roughly one tier every two seasons after that regardless of budget), and the very best free agents \u2014 85+ overall \u2014 who simply do not appear in the Transfer Market until Season 2. Everything else is available from the first whistle."),
                 React.createElement(GuideSection, { title: "Playing With Friends", sub: guideSub, dark: dark, defaultOpen: false }, "Up to four people can share one world. On the setup screen pick a club for each manager (enter a name for each too); everyone plays the same league, cups and transfer market, and every club you don't pick is run by the AI as normal. It is hot-seat: only the active manager's screen is shown, and the manager button in the top corner (or the menu) switches to another. Each manager plays their own match for the week \u2014 the continue button shows WAITING\u2026 once you're done until the others have played theirs, and then ADVANCE WEEK moves the world on for everyone. If two of you draw each other, you play that match together, both choosing your own tactics and team talks. Everything personal is kept separately per manager \u2014 reputation, record, playing style, agent rapport, job applications, watch list and messages \u2014 and the Manager Leaderboard ranks the managers at the table against each other. One save is kept for each size of game (1 to 4 managers), and the Load Game list says which is which."),
-                React.createElement(GuideSection, { title: "Online Multiplayer", sub: guideSub, dark: dark, defaultOpen: false }, "Play with up to three friends over the internet, each on your own device (it uses your cloud-sync account, so sign in first). It is turn-based: one shared game, one manager at a time. To start, open Online Multiplayer on the home page, choose how many managers, and press Create game. You pick your club, and you get an invite code to send. Your friends open Online Multiplayer, type the code, join, and pick THEIR club \u2014 nobody chooses for anyone else. When every seat has a manager and a club, you (the host) press Start the game. (If you already have a 2 to 4 manager game saved on your device you can carry it online instead, from the option at the bottom of the page.) From then on the bar at the top of the game shows whose turn it is. When the table is free, press Take my turn: the game is yours to play as normal (your matches, your squad, your transfers). When you are done press End turn (the main button turns into End turn once your own matches are played) and it is handed back with everything you did. Whoever presses ADVANCE WEEK when every manager has played moves the world on for everyone. While someone else is playing you can open any page \u2014 the league, other clubs, your own squad \u2014 but anything that would change the game is refused until it is your turn. In a match between two online managers you only ever control your own side. When the manager whose turn it is kicks off a match, a red LIVE banner appears in the bar at the top with a Watch live button: it opens the same live match screen, view-only and a few seconds behind, and Back to the game returns you. Ignore the banner and nothing changes \u2014 the match never waits for anyone. Your device checks for news every 15 seconds and loads the latest version by itself. If someone wanders off with the table, it frees itself after 12 quiet minutes (the host can also free it). Online games are always the standard game: the host's device ignores anything changed in the Editor, and every friend's device checks the game it downloads against its own copy of the built-in database, refusing one that has been altered. Online games live on the server, not in your Load list: open Online Multiplayer again at any time to see your games and rejoin one, and the host can delete a game from there."),
+                React.createElement(GuideSection, { title: "Online Multiplayer", sub: guideSub, dark: dark, defaultOpen: false }, "Play with up to three friends over the internet, each on your own device (it uses your cloud-sync account, so sign in first). It is turn-based: one shared game, one manager at a time. To start, open Online Multiplayer on the home page, choose how many managers, and press Create game. You pick your club, and you get an invite code to send. Your friends open Online Multiplayer, type the code, join, and pick THEIR club \u2014 nobody chooses for anyone else. When every seat has a manager and a club, you (the host) press Start the game. (If you already have a 2 to 4 manager game saved on your device you can carry it online instead, from the option at the bottom of the page.) From then on the bar at the top of the game shows whose turn it is. When the table is free, press Take my turn: the game is yours to play as normal (your matches, your squad, your transfers). When you are done press End turn (the main button turns into End turn once your own matches are played) and it is handed back with everything you did. Whoever presses ADVANCE WEEK when every manager has played moves the world on for everyone. While someone else is playing you can open any page \u2014 the league, other clubs, your own squad \u2014 but anything that would change the game is refused until it is your turn. In a match between two online managers you only ever control your own side. When the manager whose turn it is kicks off a match, a red LIVE banner appears in the bar at the top with a Watch live button: it opens the same live match screen, view-only and a few seconds behind, and Back to the game returns you. Ignore the banner and nothing changes \u2014 the match never waits for anyone. When the match is between two online managers, the one waiting sees \u201Cthis is YOUR match\u201D with a Join your match button. Joining lets you manage your own side from your own device: pause the match, make substitutions and tactical changes while it is paused, and choose your half-time team talk. Either of you can pause; a paused match (and half time) goes on when both of you are ready, or after 45 seconds. Your side can never be touched by the other manager. If you don't join, or you close the page, your side simply plays on your saved lineup and tactics and the match never waits for you. Your device checks for news every 15 seconds and loads the latest version by itself. If someone wanders off with the table, it frees itself after 12 quiet minutes (the host can also free it). Online games are always the standard game: the host's device ignores anything changed in the Editor, and every friend's device checks the game it downloads against its own copy of the built-in database, refusing one that has been altered. Online games live on the server, not in your Load list: open Online Multiplayer again at any time to see your games and rejoin one, and the host can delete a game from there."),
                 React.createElement(GuideSection, { title: "Cloud Sync", sub: guideSub, dark: dark, defaultOpen: false }, "Optional, and only shown where the site has it switched on. Sign in (Load Game, or Manager \u2014 Save & Load) with an email and password, and you can keep one cloud copy for each size of game \u2014 single-player, 2, 3 or 4 managers \u2014 and continue it on another phone or computer. Your game still saves on this device first, every time; the cloud is a copy you choose to send or fetch. Upload sends this device's save; Download brings the cloud one here (find it under Load Game). It always tells you which side is ahead, and if both have moved on since you last synced it asks before replacing either. Turn on \"Upload automatically after saves\" and it will send your progress after saves, at most every minute and a half, and only when that can't overwrite newer progress from another device. You can't download over the game you're playing right now \u2014 go back to the menu first."),
                 React.createElement(GuideSection, { title: "Saving", sub: guideSub, dark: dark, defaultOpen: false }, "The game autosaves after every match and every week \u2014 you don't need to do anything, and it's genuinely resilient now: if a save gets too large for your browser's storage, it automatically retries with older history trimmed back rather than simply failing, and you'll see a clear warning if it ever can't save at all. Manual Save/Load and Restart Game both live under Manager \u2192 Save & Load. Everything lives in this browser's storage by default, so it won't follow you to a different device on its own \u2014 use Export on any save slot to download a real file, then Import it wherever you want to continue. Only one single-player save and one two-player save are kept at a time \u2014 starting a new one of either type will ask you to confirm before replacing the existing one."))));
     }
@@ -11004,11 +11212,11 @@ function App() {
             React.createElement("div", { className: "max-w-lg lg:max-w-[1600px] mx-auto" },
                 spectating && (React.createElement("div", { className: "rounded-lg px-3 py-2 mb-3 border flex items-center justify-between gap-2", style: { backgroundColor: C.cardAlt, borderColor: C.amber } },
                     React.createElement("div", { className: "text-[11px] font-bold", style: { color: C.text } },
-                        "\uD83D\uDC41 Watching ",
-                        (liveHead && liveHead.seat != null && online && online.game.seats[liveHead.seat] ? online.game.seats[liveHead.seat].name : "the other manager"),
-                        "'s match \u2014 view only, a few seconds behind",
+                        h2hJoined ? "🎮 You've joined your match — you manage " + clubsById[controlled[online.seat]].name + ". " : "👁 Watching ",
+                        h2hJoined ? (liveHead && liveHead.seat != null && online && online.game.seats[liveHead.seat] ? online.game.seats[liveHead.seat].name : "The host") + " runs it; your changes reach the match within a couple of seconds" : (liveHead && liveHead.seat != null && online && online.game.seats[liveHead.seat] ? online.game.seats[liveHead.seat].name : "the other manager") + "'s match — view only, a few seconds behind",
                         liveHead && liveHead.state === "ended" ? " · the match has finished" : ""),
                     React.createElement("button", { onClick: onlineWatchStop, className: "px-3 py-1.5 rounded-lg text-[10px] font-bold flex-shrink-0", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "\u2190 Back to the game"))),
+                !spectating && m.h2h && (React.createElement("div", { className: "text-[10px] text-center mb-2 font-bold", style: { color: C.sub } }, m.h2h.joined ? `👥 ${(online && online.game.seats[m.h2h.oppSeat] && online.game.seats[m.h2h.oppSeat].name) || "The other manager"} has joined this match and manages ${clubsById[m.h2h.oppSide === "home" ? m.homeId : m.awayId].name}.${!m.running && !full && !m.atHalftime ? (m.h2h.oppReady ? " They are ready." : " Waiting for them to be ready" + (Math.max(0, Math.ceil((H2H_WAIT_MS - (Date.now() - m.h2h.pausedAt)) / 1000)) > 0 ? ` (${Math.max(0, Math.ceil((H2H_WAIT_MS - (Date.now() - m.h2h.pausedAt)) / 1000))} s).` : " — carrying on without them.")) : ""}` : `${(online && online.game.seats[m.h2h.oppSeat] && online.game.seats[m.h2h.oppSeat].name) || "The other manager"} hasn't joined — ${clubsById[m.h2h.oppSide === "home" ? m.homeId : m.awayId].name} play on their saved lineup and tactics. (They can join at any time.)`)),
                 React.createElement("div", { className: "text-center text-[10px] tracking-[0.3em] font-bold mb-1", style: { color: C.amber } },
                     m.isCup ? cupNameFor(m.cupKey).toUpperCase() : `WEEK ${week}`,
                     " MATCHDAY"),
@@ -11051,7 +11259,7 @@ function App() {
                         React.createElement("div", { className: "text-[10px]", style: { color: C.sub } },
                             m.penaltyShootout.homeWon ? home.name : away.name,
                             " win the shootout"))),
-                    full && !m.penaltyShootout && (m.isCup || m.isPlayoff) && hg === ag && (managesSide(m.homeId) || managesSide(m.awayId)) && (React.createElement("div", { className: "mt-3 pt-3 border-t", style: { borderColor: C.cardAlt } },
+                    full && !m.penaltyShootout && (m.isCup || m.isPlayoff) && hg === ag && !spectating && (managesSide(m.homeId) || managesSide(m.awayId)) && (React.createElement("div", { className: "mt-3 pt-3 border-t", style: { borderColor: C.cardAlt } },
                         React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1 text-center", style: { color: C.amber } }, "CHOOSE YOUR PENALTY TAKERS"),
                         React.createElement("div", { className: "text-[9px] mb-2 text-center", style: { color: C.sub } }, "Pick 5, in order \u2014 tap to add, tap again to remove. Leave it empty and they'll go with best-shooting-first automatically."),
                         managesSide(m.homeId) && (React.createElement("div", { className: "mb-2" },
@@ -11080,6 +11288,28 @@ function App() {
                             })))),
                         React.createElement("button", { onClick: submitPenaltyTakers, className: "w-full py-2.5 rounded-lg font-bold text-sm mt-1", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "Step Up \u2014 Take The Penalties"))),
                     !full && !m.atHalftime && React.createElement("div", { className: "text-center text-[10px] mt-2", style: { color: C.sub } }, m.running ? "Live — running" : m.minute === 0 ? "Kick off when ready" : "Paused")),
+                spectating && h2hJoined && !full && m.running && !m.atHalftime && (React.createElement("button", { onClick: toggleMatchRunning, className: "w-full py-2.5 rounded-lg font-black tracking-widest text-xs mb-3", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "\u23F8 PAUSE THE MATCH (to make changes)")),
+                spectating && h2hJoined && !full && !m.running && !m.atHalftime && (React.createElement("div", { className: "mb-3" },
+                    React.createElement("div", { className: "text-[11px] text-center mb-2 font-bold", style: { color: C.amber } }, m.minute === 0 ? "Before kick-off: make any changes, then press Ready — the match starts when you are both ready (or after " + Math.round(H2H_WAIT_MS / 1000) + " s)." : "⏸ Paused. Make your changes, then press Resume — the match goes on when you are both ready (or after " + Math.round(H2H_WAIT_MS / 1000) + " s)."),
+                    React.createElement("button", { onClick: toggleMatchRunning, className: "w-full py-2.5 rounded-lg font-black tracking-widest text-xs", style: { backgroundColor: C.green, color: "#FFFFFF" } }, m.minute === 0 ? "▶ READY TO KICK OFF" : "▶ RESUME — I'M READY"))),
+                m.atHalftime && spectating && h2hJoined && online && (() => { const myClub = controlled[online.seat]; const mySide = m.homeId === myClub ? "home" : "away"; const holder = online.game.seats[liveHead && liveHead.seat != null ? liveHead.seat : 0]; return m[mySide + "TeamTalkGiven"] ? (React.createElement("div", { className: "text-xs text-center mb-3", style: { color: C.sub } },
+                    m[mySide + "TeamTalkOutcome"],
+                    " Waiting for ",
+                    (holder && holder.name) || "the host",
+                    " to start the second half\u2026")) : (React.createElement("div", { className: "rounded-lg p-3 border mb-3", style: { borderColor: C.amber, backgroundColor: C.cardAlt } },
+                    React.createElement("div", { className: "text-[10px] tracking-widest font-bold mb-1.5 text-center", style: { color: C.amber } },
+                        "HALF-TIME TEAM TALK \u2014 ",
+                        clubsById[myClub].name.toUpperCase()),
+                    React.createElement("div", { className: "grid grid-cols-3 gap-1.5" },
+                        React.createElement("button", { onClick: () => giveTeamTalk(mySide, "calm"), className: "py-2 rounded-lg text-[10px] font-bold border", style: { borderColor: C.border, backgroundColor: "#FFFFFF" } }, "Calm & Measured"),
+                        React.createElement("button", { onClick: () => giveTeamTalk(mySide, "rousing"), className: "py-2 rounded-lg text-[10px] font-bold border", style: { borderColor: C.border, backgroundColor: "#FFFFFF" } }, "Rousing"),
+                        React.createElement("button", { onClick: () => giveTeamTalk(mySide, "demanding"), className: "py-2 rounded-lg text-[10px] font-bold border", style: { borderColor: C.border, backgroundColor: "#FFFFFF" } }, "Demanding")))); })(),
+                m.atHalftime && !spectating && m.h2h && m.h2h.joined && !m[m.h2h.oppSide + "TeamTalkGiven"] && (React.createElement("div", { className: "text-xs text-center mb-2 font-bold", style: { color: C.amber } },
+                    "\u23F3 Waiting for ",
+                    (online && online.game.seats[m.h2h.oppSeat] && online.game.seats[m.h2h.oppSeat].name) || "the other manager",
+                    "'s half-time team talk (",
+                    Math.max(0, Math.ceil((H2H_WAIT_MS - (Date.now() - (m.h2h.halfAt || Date.now()))) / 1000)),
+                    " s)\u2026")),
                 m.atHalftime && !spectating && ((() => {
                     const homeControlled = managesSide(m.homeId);
                     const awayControlled = managesSide(m.awayId);
@@ -11858,7 +12088,7 @@ function App() {
     }
     return (React.createElement("div", { className: "min-h-full w-full lg:pr-[232px]", style: pageBg },
         React.createElement("div", { className: "max-w-4xl lg:max-w-[1600px] mx-auto px-3 sm:px-6 pt-4 pb-2" },
-            online && (React.createElement(OnlineBar, { game: online.game, status: onlineStatus(online.game, online.userId), toast: onlineToast, busy: onlineBusy, onTake: onlineTakeTurn, onEnd: onlineEndTurn, onLeave: onlineLeave, onCheck: onlineCheck, live: liveHead && liveHead.state === "live" && Date.now() - liveSeen.current.at < 15000 && onlineStatus(online.game, online.userId).mode === "waiting" ? liveHead : null, onWatch: onlineWatchStart })),
+            online && (React.createElement(OnlineBar, { game: online.game, status: onlineStatus(online.game, online.userId), toast: onlineToast, busy: onlineBusy, onTake: onlineTakeTurn, onEnd: onlineEndTurn, onLeave: onlineLeave, onCheck: onlineCheck, live: liveHead && liveHead.state === "live" && Date.now() - liveSeen.current.at < 15000 && onlineStatus(online.game, online.userId).mode === "waiting" ? { ...liveHead, mine: liveHead.opp_seat === online.seat } : null, onWatch: onlineWatchStart, onJoin: onlineJoinMatch })),
             React.createElement("div", { className: "flex items-center justify-between flex-wrap gap-2 mb-2" },
                 React.createElement("div", { className: "flex items-center gap-2 min-w-0" },
                     activeClub ? React.createElement(ClubCrest, { club: activeClub, size: 28 }) : React.createElement("span", { style: { fontSize: 22 } }, "\uD83D\uDC40"),
