@@ -2425,6 +2425,18 @@ function generateTickCommentary(seg, home, away, ballPosition) {
             const teamName = e.teamId === home.id ? home.name : away.name;
             lines.push({ minute: e.minute, text: `❌ PENALTY MISSED! ${e.takerName} can't convert for ${teamName} — huge let-off!`, important: true });
         }
+        else if (e.kind === "shot") {
+            const teamName = e.teamId === home.id ? home.name : away.name;
+            const keeper = e.keeperName || "the keeper";
+            let text = e.saved
+                ? choice([`🧤 ${e.shooterName} shoots for ${teamName}, but ${keeper} is equal to it.`, `🧤 ${keeper} gathers a tame effort from ${e.shooterName}.`, `🧤 ${e.shooterName} tests ${keeper}, who holds on comfortably.`])
+                : e.blocked
+                    ? choice([`🚫 ${e.shooterName}'s effort for ${teamName} is charged down.`, `🚫 A last-ditch block denies ${e.shooterName} for ${teamName}.`])
+                    : choice([`↗️ ${e.shooterName} drags it wide for ${teamName}.`, `↗️ ${e.shooterName}'s shot for ${teamName} flies well over.`, `↗️ ${e.shooterName} can't keep the effort down for ${teamName}.`]);
+            if (e.corner)
+                text += ` ${teamName} win a corner.`;
+            lines.push({ minute: e.minute, text, important: false });
+        }
     });
     (seg.cardEvents || []).forEach((ce) => {
         const teamName = ce.teamId === home.id ? home.name : away.name;
@@ -2441,8 +2453,14 @@ function generateTickCommentary(seg, home, away, ballPosition) {
             lines.push({ minute: null, text: commentaryLine(COMMENTARY_ATTACKING, away.name) });
         else if (Math.random() < 0.5)
             lines.push({ minute: null, text: commentaryLine(COMMENTARY_NEUTRAL, null) });
-        else
-            lines.push({ minute: null, text: commentaryLine(COMMENTARY_DEFENSIVE, Math.random() < 0.5 ? home.name : away.name) });
+        else {
+            // Ball near midfield doesn't clear either "attacking" threshold, but it's still leaning
+            // one way or the other — name whichever side that lean actually puts under a bit of
+            // pressure, the same ballPosition the pitch view itself is drawn from, rather than a coin
+            // flip that had a good chance of naming the team that WASN'T under any pressure at all.
+            const underPressure = ballPosition > 0 ? away.name : ballPosition < 0 ? home.name : (Math.random() < 0.5 ? home.name : away.name);
+            lines.push({ minute: null, text: commentaryLine(COMMENTARY_DEFENSIVE, underPressure) });
+        }
     }
     return lines;
 }
@@ -2503,10 +2521,19 @@ function simulateSegment(homeClub, awayClub, homeXI, awayXI, fromMin, toMin) {
             const saved = Math.random() < 0.55;
             if (saved && gk)
                 bump(gk.id, "saves");
-            // Only the genuinely big chances that don't go in get their own moment — a near-miss worth
-            // a line of commentary, not every wayward effort.
-            if (shot.quality === "big")
+            if (shot.quality === "big") {
+                // The genuinely big chances that don't go in get their own dramatic moment.
                 events.push({ minute: randInt(fromMin + 1, toMin), kind: "big-chance", teamId, shooterId: shooter.id, shooterName: shooter.name, keeperName: gk?.name || null, saved, post: !saved && Math.random() < 0.2 });
+            }
+            else {
+                // Every other shot still gets its moment in the live ticker, named, the way real
+                // match commentary covers routine efforts as well as clear-cut ones — filtered back
+                // out before anything is kept long-term (see newEvents below), so the permanent
+                // per-team list still only shows what actually matters, not every tame effort.
+                const blocked = !saved && Math.random() < 0.35;
+                const corner = (saved || blocked) && Math.random() < 0.3;
+                events.push({ minute: randInt(fromMin + 1, toMin), kind: "shot", teamId, shooterId: shooter.id, shooterName: shooter.name, keeperName: gk?.name || null, saved, blocked, corner, quality: shot.quality });
+            }
         }
     }
     for (let i = 0; i < shotsHome; i++)
@@ -3192,22 +3219,40 @@ function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosi
     // shows the ball going into the scoring team's own net, since the goals moved but the ball's
     // left/right math didn't.
     const ballLeft = 50 + (ballPosition ?? 0) / 2 * (secondHalf ? -1 : 1);
-    // Not a real tactical simulation — nobody is actually running to intercept or mark anyone.
-    // Each player gets a small, deterministic drift around their formation slot that changes every
-    // match-minute (seeded on their id + the minute, so it's stable within a render but shifts
-    // frame to frame), plus a slight pull toward wherever the ball currently is. Enough to read as
-    // a living match rather than a diagram, honest about not being more than that.
+    // Not a real tactical simulation — nobody is actually running to intercept or mark anyone. Each
+    // player gets a small, deterministic drift around their formation slot (seeded on their id + the
+    // minute, so it's stable within a render but shifts frame to frame), plus a pull toward wherever
+    // the ball currently is — strong enough, for attacking players, to actually cross the halfway line
+    // and get near the opponent's goal when their team is on the attack, rather than stopping short of
+    // it. How hard a player is pulled, and how far forward they're allowed to end up, both depend on
+    // their position: a striker chases the ball the length of the pitch; a centre-back mostly holds
+    // the defensive line and only steps up a little, even under sustained pressure.
     function wobbled(d) {
         if (reduceMotion)
             return d;
         const seed = hashStr(`${d.player.id}_${minute ?? 0}`);
         const angle = (seed % 360) * (Math.PI / 180);
-        // Goalkeepers stay anchored near their line — a tiny shuffle side to side, no pull toward
-        // the ball at all, rather than wandering upfield like an outfield player.
         const isGK = d.player.position === "GK";
+        const isFW = d.player.position === "FW";
+        const isMF = d.player.position === "MF";
         const mag = isGK ? 1 + (seed % 2) : 3 + (seed % 6);
-        const pull = isGK ? 0 : 0.12;
-        const x = clamp(d.x + Math.cos(angle) * mag * (isGK ? 0.3 : 1) + (ballLeft - d.x) * pull, 2, 98);
+        // pull: how strongly this player is drawn toward the ball's current spot.
+        // reach: the furthest forward (as a percentage of the way to the opponent's goal line) they're
+        // allowed to end up, however hard the ball pulls — a striker can reach the six-yard box; a
+        // defender is not going to be found in it.
+        const pull = isGK ? 0 : isFW ? 0.6 : isMF ? 0.38 : 0.2;
+        const reach = isFW ? 96 : isMF ? 82 : 66;
+        let x = isGK ? d.x : d.x + (ballLeft - d.x) * pull;
+        x = clamp(x + Math.cos(angle) * mag * (isGK ? 0.3 : 1), 2, 98);
+        if (!isGK) {
+            // "Reach" is measured from this player's own goal line toward the goal they're attacking,
+            // not as a raw left/right coordinate — attacksRight covers both teams and both halves
+            // (teams swap ends at half-time) without needing separate cases for each.
+            const attacksRight = d.team === "home" ? !homeOnRight : homeOnRight;
+            const advance = attacksRight ? x : 100 - x;
+            const cappedAdvance = Math.min(advance, reach);
+            x = attacksRight ? cappedAdvance : 100 - cappedAdvance;
+        }
         const y = clamp(d.y + Math.sin(angle) * mag * 0.6 + (ballTop0 - d.y) * pull, 6, 94);
         return { ...d, x, y };
     }
@@ -3235,10 +3280,10 @@ function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosi
             React.createElement("div", { style: { position: "absolute", top: "50%", left: "50%", width: 60, height: 60, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.35)", transform: "translate(-50%,-50%)" } }),
             React.createElement("div", { className: "absolute", style: { left: 2, top: "28%", width: 8, height: "44%", border: "2px solid rgba(255,255,255,0.35)", borderLeft: "none" } }),
             React.createElement("div", { className: "absolute", style: { right: 2, top: "28%", width: 8, height: "44%", border: "2px solid rgba(255,255,255,0.35)", borderRight: "none" } }),
-            allDots.map((d, i) => (React.createElement("div", { key: `${d.team}-${i}`, className: "absolute flex flex-col items-center", style: { left: `${d.x}%`, top: `${d.y}%`, transform: "translate(-50%,-50%)", transition: "left 1.4s ease-in-out, top 1.4s ease-in-out" } },
+            allDots.map((d, i) => (React.createElement("div", { key: `${d.team}-${i}`, className: "absolute flex flex-col items-center", style: { left: `${d.x}%`, top: `${d.y}%`, transform: "translate(-50%,-50%)", transition: "left 0.9s ease-in-out, top 0.9s ease-in-out" } },
                 React.createElement("div", { className: "rounded-full flex items-center justify-center text-[8px] font-black", style: { width: 17, height: 17, backgroundColor: d.team === "home" ? (homeKit?.primary || C.green) : (awayKit?.primary || C.amber), border: `1.5px solid ${d.team === "home" ? (homeKit?.secondary || "#FFFFFF") : (awayKit?.secondary || "#FFFFFF")}`, color: d.team === "home" ? (homeKit?.secondary || "#FFFFFF") : (awayKit?.secondary || "#FFFFFF") } }, d.player.jerseyNumber ?? ""),
                 React.createElement("div", { className: "text-[7px] font-bold text-white mt-0.5 whitespace-nowrap", style: { textShadow: "0 0 2px rgba(0,0,0,0.8)" } }, d.player.name.split(" ").slice(-1)[0])))),
-            React.createElement("div", { style: { position: "absolute", top: `${ballTop}%`, left: `${ballLeft}%`, transform: "translate(-50%, -140%)", transition: "left 1.2s linear, top 1.2s linear", fontSize: 16, zIndex: 10 } }, "\u26BD")),
+            React.createElement("div", { style: { position: "absolute", top: `${ballTop}%`, left: `${ballLeft}%`, transform: "translate(-50%, -140%)", transition: "left 0.85s linear, top 0.85s linear", fontSize: 16, zIndex: 10 } }, "\u26BD")),
         nearestPlayer && (React.createElement("div", { className: "py-1.5 px-2 text-[10px] font-bold text-center", style: { backgroundColor: "rgba(0,0,0,0.35)", color: "#FFFFFF", minHeight: 20 } }, commentary && commentary[0] ? commentary[0].text : `⚽ ${nearestPlayer.player.name}`)),
         React.createElement("div", { className: "flex items-center justify-between px-3 py-1.5 text-[9px] font-bold", style: { backgroundColor: "rgba(0,0,0,0.2)", color: "#FFFFFF" } },
             React.createElement("span", null,
@@ -6588,8 +6633,28 @@ function App() {
             setPressing(clubId, payload.v);
         else if (type === "setPieceTaker")
             setSetPieceTaker(clubId, payload.role, payload.v || null);
+        else if (type === "listTransfer")
+            toggleTransferListed(payload.playerId);
+        else if (type === "listLoan")
+            toggleLoanListed(payload.playerId);
+        else if (type === "contractOffer")
+            submitContractOffer(payload.playerId, clubId, payload.terms, payload.sellerClubId || null, payload.agreedFee || 0, !!payload.isRenewal);
     }
-    const CLUB_ACTION_TYPES = ["formation", "tempo", "pressing", "setPieceTaker"];
+    const CLUB_ACTION_TYPES = ["formation", "tempo", "pressing", "setPieceTaker", "listTransfer", "listLoan", "contractOffer"];
+    // Same idea as onlineActOnClub, but for the two toggles that only take a player id (no club id is
+    // needed to apply them — they just flip a flag on the player).
+    function onlineToggleListed(type, playerId) {
+        onlineActOnClub(type, null, { playerId });
+    }
+    // Submitting a contract offer (a fresh free-agent signing, a renewal, or personal terms after a club
+    // accepts a transfer bid) already waits a week to resolve, so queuing it while you're not at the
+    // table changes nothing about how it plays out — it just needs to actually reach the world.
+    function onlineSubmitContractOffer(playerId, buyerClubId, terms, sellerClubId, agreedFee, isRenewal) {
+        onlineActOnClub("contractOffer", buyerClubId, { playerId, terms, sellerClubId, agreedFee, isRenewal });
+        setContractOfferDraft(null);
+        setNegotiation(null);
+        setMarketPlayerId(null);
+    }
     // Formation, tempo, pressing, and set-piece takers all just change your own club's settings — no
     // live match involved, so there's no need for anyone to "join" anything first. If it's not your
     // turn, this queues the change instead of applying it straight away.
@@ -7060,7 +7125,7 @@ function App() {
             const homeCards = applyCards(afterInjuriesM, homeCardEvts, "home");
             const afterHomeCardsM = { ...afterInjuriesM, homeXI: homeCards.xi, cardPenalties: homeCards.cardPenalties, matchCards: homeCards.matchCards };
             const awayCards = applyCards(afterHomeCardsM, awayCardEvts, "away");
-            const newEvents = [...m.events, ...seg.events, ...homeRes.extraEvents, ...awayRes.extraEvents, ...homeCards.extraEvents, ...awayCards.extraEvents];
+            const newEvents = [...m.events, ...seg.events.filter((e) => e.kind !== "shot"), ...homeRes.extraEvents, ...awayRes.extraEvents, ...homeCards.extraEvents, ...awayCards.extraEvents];
             const reachedHalf = m.minute < 45 && to >= 45;
             const reachedFull = to >= 90;
             const playerStats = { ...m.playerStats };
@@ -7081,10 +7146,33 @@ function App() {
             const goalThisTick = seg.events.find((e) => e.kind === "goal");
             const wasNearNet = Math.abs(m.ballPosition ?? 0) > 90;
             const netShotSignal = (seg.homeShotsThisSeg || 0) - (seg.awayShotsThisSeg || 0);
-            let ballPosition = (m.ballPosition ?? 0) * (wasNearNet ? 0.88 : 0.7) + (Math.random() - 0.5) * 26 + netShotSignal * 14 + (seg.pressureBias || 0) * 6;
-            ballPosition = clamp(ballPosition, -100, 100);
+            let ballPosition;
+            if (m.kickoffPending) {
+                // The goal itself got its moment last tick (held right at the net, per above); this
+                // tick is the actual restart. A real match kicks off again from the center circle —
+                // not wherever the drift-and-noise formula below happens to wander next — so this one
+                // tick is a deliberate, explicit reset rather than another step of the random walk.
+                ballPosition = 0;
+            }
+            else {
+                ballPosition = (m.ballPosition ?? 0) * (wasNearNet ? 0.88 : 0.7) + (Math.random() - 0.5) * 26 + netShotSignal * 14 + (seg.pressureBias || 0) * 6;
+                ballPosition = clamp(ballPosition, -100, 100);
+            }
+            // A shot (of any quality) happening this tick means the ball is genuinely in the business
+            // end right then, not wherever the noisy drift formula above landed it — otherwise "the
+            // goalkeeper claims it" or "wins a corner" reads as happening around the halfway line. How
+            // far forward depends on the chance: a tap-in is right on the goal line; a speculative
+            // effort from distance is a good deal further out. A goal (below) always wins if both land
+            // in the same tick.
+            const shotThisTick = [...seg.events].reverse().find((e) => e.kind === "shot" || e.kind === "big-chance");
+            if (shotThisTick) {
+                const quality = shotThisTick.kind === "big-chance" ? "big" : shotThisTick.quality;
+                const advance = quality === "big" ? 88 : quality === "good" ? 74 : quality === "speculative" ? 48 : 62;
+                ballPosition = shotThisTick.teamId === m.homeId ? advance : -advance;
+            }
             if (goalThisTick)
                 ballPosition = goalThisTick.teamId === m.homeId ? 99 : -99;
+            const kickoffPending = !!goalThisTick;
             const newCommentary = generateTickCommentary(seg, home, away, ballPosition);
             const commentary = [...newCommentary.reverse(), ...(m.commentary || [])].slice(0, 40);
             // possession — a probabilistic share each tick based on the same pressure signal,
@@ -7115,7 +7203,7 @@ function App() {
                 cardPenalties: awayCards.cardPenalties, matchCards: awayCards.matchCards,
                 injuries: awayRes.injuries, atHalftime: reachedHalf,
                 running: (reachedHalf || reachedFull) ? false : m.running,
-                playerStats, stamina, ballPosition, homePossession, awayPossession, penaltyShootout, commentary,
+                playerStats, stamina, ballPosition, kickoffPending, homePossession, awayPossession, penaltyShootout, commentary,
             };
         });
     }
@@ -11694,6 +11782,7 @@ function App() {
                 React.createElement("button", { onClick: () => { setViewingPlayerId(null); setRenamingId(null); setConfirmingRelease(false); setConfirmingExtension(false); setExtensionResult(null); }, className: "flex items-center gap-1.5 text-xs font-bold mb-3", style: { color: C.sub } },
                     React.createElement(Ico, { e: "\u2190", size: 14 }),
                     " Back"),
+                online && onlineToast && (React.createElement("div", { className: "rounded-lg p-2.5 mb-3 border text-[11px] font-bold", style: { backgroundColor: C.cardAlt, borderColor: C.amber, color: C.amber } }, onlineToast)),
                 React.createElement("div", { className: "rounded-lg p-5 w-full border", style: { backgroundColor: C.card, borderColor: C.border } },
                     React.createElement("div", { className: "flex items-start justify-between mb-1 gap-2" }, renamingId === viewingPlayer.id ? (React.createElement("div", { className: "flex-1 flex items-center gap-1.5" },
                         React.createElement("input", { value: renameValue, onChange: (e) => setRenameValue(e.target.value), className: "flex-1 border rounded px-2 py-1 text-lg font-bold", style: { borderColor: C.green }, autoFocus: true }),
@@ -11976,13 +12065,13 @@ function App() {
                                                 React.createElement("button", { onClick: () => respondToCounterOffer(myRenewal.id, "withdraw"), className: "flex-1 py-1.5 rounded text-[10px] font-bold border", style: { borderColor: C.border, color: C.sub } }, "Withdraw"))))));
                                 }
                                 if (contractOfferDraft?.playerId === viewingPlayer.id) {
-                                    return React.createElement(ContractOfferBuilder, { p: viewingPlayer, draft: contractOfferDraft, setDraft: setContractOfferDraft, expected: expectedRenewalWage(viewingPlayer, activeClub), agent: agentFor(viewingPlayer), rapport: agentRapportOf(activeIdx, agentFor(viewingPlayer).id), onCancel: () => setContractOfferDraft(null), onSubmit: () => submitContractOffer(viewingPlayer.id, activeClubId, contractOfferDraft, null, 0, true) });
+                                    return React.createElement(ContractOfferBuilder, { p: viewingPlayer, draft: contractOfferDraft, setDraft: setContractOfferDraft, expected: expectedRenewalWage(viewingPlayer, activeClub), agent: agentFor(viewingPlayer), rapport: agentRapportOf(activeIdx, agentFor(viewingPlayer).id), onCancel: () => setContractOfferDraft(null), onSubmit: () => onlineSubmitContractOffer(viewingPlayer.id, activeClubId, contractOfferDraft, null, 0, true) });
                                 }
                                 const onCooldown = viewingPlayer.contractOfferCooldownUntil && week < viewingPlayer.contractOfferCooldownUntil;
                                 return (React.createElement("button", { onClick: () => setContractOfferDraft({ playerId: viewingPlayer.id, wage: viewingPlayer.wage, signingBonus: 0, goalBonus: viewingPlayer.goalBonus || 0, assistBonus: viewingPlayer.assistBonus || 0, contractWeeks: 104, clauseRelegation: false, clausePromotion: false }), disabled: onCooldown, className: "w-full py-2 rounded-lg text-xs font-bold border disabled:opacity-40", style: { borderColor: C.green, color: C.green } }, onCooldown ? `Won't discuss it again for ${viewingPlayer.contractOfferCooldownUntil - week}wk` : "💼 Offer Contract Extension"));
                             })(),
-                            React.createElement("button", { onClick: () => toggleTransferListed(viewingPlayer.id), className: "w-full py-2 rounded-lg text-xs font-bold border", style: { borderColor: C.amber, color: C.amber } }, viewingPlayer.transferListed ? "Remove from Transfer List" : "List for Transfer (rivals more likely to bid)"),
-                            React.createElement("button", { onClick: () => toggleLoanListed(viewingPlayer.id), className: "w-full py-2 rounded-lg text-xs font-bold border", style: { borderColor: "#3B82C4", color: "#3B82C4" } }, viewingPlayer.loanListed ? "Remove from Loan List" : "📋 List for Loan (rivals can request them for the season)"),
+                            React.createElement("button", { onClick: () => onlineToggleListed("listTransfer", viewingPlayer.id), className: "w-full py-2 rounded-lg text-xs font-bold border", style: { borderColor: C.amber, color: C.amber } }, viewingPlayer.transferListed ? "Remove from Transfer List" : "List for Transfer (rivals more likely to bid)"),
+                            React.createElement("button", { onClick: () => onlineToggleListed("listLoan", viewingPlayer.id), className: "w-full py-2 rounded-lg text-xs font-bold border", style: { borderColor: "#3B82C4", color: "#3B82C4" } }, viewingPlayer.loanListed ? "Remove from Loan List" : "📋 List for Loan (rivals can request them for the season)"),
                             activeClub?.captainId !== viewingPlayer.id ? (React.createElement("button", { onClick: () => makeCaptain(activeClubId, viewingPlayer.id), className: "w-full py-2 rounded-lg text-xs font-bold border", style: { borderColor: C.green, color: C.green } }, "\u26A1 Make Captain")) : (React.createElement("div", { className: "w-full py-2 rounded-lg text-xs font-bold text-center", style: { backgroundColor: C.cardAlt, color: C.green } }, "\u26A1 Club Captain")),
                             !confirmingRelease ? (React.createElement("button", { onClick: () => setConfirmingRelease(true), className: "w-full py-2 rounded-lg text-xs font-bold border", style: { borderColor: C.red, color: C.red } }, "Release Player")) : (React.createElement("div", { className: "rounded-lg p-3 border", style: { borderColor: C.red, backgroundColor: "#FBEDEA" } },
                                 React.createElement("div", { className: "text-xs font-bold mb-1", style: { color: C.red } }, "Are you sure?"),
@@ -12968,7 +13057,7 @@ function App() {
                                 " \u00B7 Morale ",
                                 Math.round(p.morale),
                                 "/100"),
-                            p.clubId === null ? (contractOfferDraft?.playerId === p.id ? (React.createElement(ContractOfferBuilder, { p: p, draft: contractOfferDraft, setDraft: setContractOfferDraft, expected: expectedWage(p, activeClub), agent: agentFor(p), rapport: agentRapportOf(activeIdx, agentFor(p).id), onCancel: () => setContractOfferDraft(null), onSubmit: () => submitContractOffer(p.id, activeClubId, contractOfferDraft, null, 0) })) : (React.createElement("button", { onClick: () => setContractOfferDraft({ playerId: p.id, wage: expectedWage(p, activeClub), signingBonus: 0, goalBonus: 0, assistBonus: 0, contractWeeks: 104, clauseRelegation: false, clausePromotion: false }), className: "w-full py-3 rounded-lg font-bold text-sm", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "\uD83D\uDCBC Offer Contract"))) : p.clubId === activeClubId ? (React.createElement("div", { className: "text-xs italic text-center", style: { color: C.sub } }, "Already part of your squad.")) : onCooldown ? (React.createElement("div", { className: "text-xs text-center", style: { color: C.sub } },
+                            p.clubId === null ? (contractOfferDraft?.playerId === p.id ? (React.createElement(ContractOfferBuilder, { p: p, draft: contractOfferDraft, setDraft: setContractOfferDraft, expected: expectedWage(p, activeClub), agent: agentFor(p), rapport: agentRapportOf(activeIdx, agentFor(p).id), onCancel: () => setContractOfferDraft(null), onSubmit: () => onlineSubmitContractOffer(p.id, activeClubId, contractOfferDraft, null, 0, false) })) : (React.createElement("button", { onClick: () => setContractOfferDraft({ playerId: p.id, wage: expectedWage(p, activeClub), signingBonus: 0, goalBonus: 0, assistBonus: 0, contractWeeks: 104, clauseRelegation: false, clausePromotion: false }), className: "w-full py-3 rounded-lg font-bold text-sm", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "\uD83D\uDCBC Offer Contract"))) : p.clubId === activeClubId ? (React.createElement("div", { className: "text-xs italic text-center", style: { color: C.sub } }, "Already part of your squad.")) : onCooldown ? (React.createElement("div", { className: "text-xs text-center", style: { color: C.sub } },
                                 clubsById[p.clubId]?.name,
                                 " aren't interested in an approach for ",
                                 p.transferCooldownUntil - week,
@@ -14028,7 +14117,7 @@ function App() {
                         " agree to sell for ",
                         formatMoney(negotiation.agreedFee),
                         " \u2014 now it's down to the player."),
-                    contractOfferDraft?.playerId === negotiation.player.id ? (React.createElement(ContractOfferBuilder, { p: negotiation.player, draft: contractOfferDraft, setDraft: setContractOfferDraft, expected: expectedWage(negotiation.player, clubsById[negotiation.buyerClubId]), agent: agentFor(negotiation.player), rapport: agentRapportOf(activeIdx, agentFor(negotiation.player).id), feeInfo: negotiation.agreedFee, onCancel: () => setContractOfferDraft(null), onSubmit: () => submitContractOffer(negotiation.player.id, negotiation.buyerClubId, contractOfferDraft, negotiation.sellerClub.id, negotiation.agreedFee) })) : (React.createElement("button", { onClick: () => setContractOfferDraft({ playerId: negotiation.player.id, wage: expectedWage(negotiation.player, clubsById[negotiation.buyerClubId]), signingBonus: 0, goalBonus: 0, assistBonus: 0, contractWeeks: 104, clauseRelegation: false, clausePromotion: false }), className: "w-full py-2.5 rounded-lg font-bold text-sm", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "\uD83D\uDCBC Discuss Personal Terms")))),
+                    contractOfferDraft?.playerId === negotiation.player.id ? (React.createElement(ContractOfferBuilder, { p: negotiation.player, draft: contractOfferDraft, setDraft: setContractOfferDraft, expected: expectedWage(negotiation.player, clubsById[negotiation.buyerClubId]), agent: agentFor(negotiation.player), rapport: agentRapportOf(activeIdx, agentFor(negotiation.player).id), feeInfo: negotiation.agreedFee, onCancel: () => setContractOfferDraft(null), onSubmit: () => onlineSubmitContractOffer(negotiation.player.id, negotiation.buyerClubId, contractOfferDraft, negotiation.sellerClub.id, negotiation.agreedFee, false) })) : (React.createElement("button", { onClick: () => setContractOfferDraft({ playerId: negotiation.player.id, wage: expectedWage(negotiation.player, clubsById[negotiation.buyerClubId]), signingBonus: 0, goalBonus: 0, assistBonus: 0, contractWeeks: 104, clauseRelegation: false, clausePromotion: false }), className: "w-full py-2.5 rounded-lg font-bold text-sm", style: { backgroundColor: C.green, color: "#FFFFFF" } }, "\uD83D\uDCBC Discuss Personal Terms")))),
                 !negotiation.result && (React.createElement(React.Fragment, null,
                     React.createElement("div", { className: "space-y-2 mb-4" }, BID_TIERS.map((t) => {
                         const fee = Math.round(transferFee(negotiation.player) * t.mult);
