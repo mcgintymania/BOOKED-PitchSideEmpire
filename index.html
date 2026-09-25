@@ -2400,7 +2400,7 @@ function commentaryLine(pool, teamName) {
     const line = choice(pool);
     return line.replace("{team}", teamName);
 }
-function generateTickCommentary(seg, home, away, ballPosition) {
+function generateTickCommentary(seg, home, away, ballPosition, homeXI, awayXI) {
     // Real events always take priority — a goal or card is never buried under flavour text.
     const lines = [];
     seg.events.forEach((e) => {
@@ -2425,6 +2425,9 @@ function generateTickCommentary(seg, home, away, ballPosition) {
             const teamName = e.teamId === home.id ? home.name : away.name;
             lines.push({ minute: e.minute, text: `❌ PENALTY MISSED! ${e.takerName} can't convert for ${teamName} — huge let-off!`, important: true });
         }
+        else if (e.kind === "corner-deliver" || e.kind === "corner-resolve") {
+            lines.push({ minute: e.minute, text: e.text, important: false });
+        }
         else if (e.kind === "shot") {
             const teamName = e.teamId === home.id ? home.name : away.name;
             const keeper = e.keeperName || "the keeper";
@@ -2447,10 +2450,18 @@ function generateTickCommentary(seg, home, away, ballPosition) {
     if (lines.length === 0 && Math.random() < 0.6) {
         const attackingHome = ballPosition > 25;
         const attackingAway = ballPosition < -25;
-        if (attackingHome)
-            lines.push({ minute: null, text: commentaryLine(COMMENTARY_ATTACKING, home.name) });
-        else if (attackingAway)
-            lines.push({ minute: null, text: commentaryLine(COMMENTARY_ATTACKING, away.name) });
+        // A wide, non-forward outfield player (full-backs, wingers, central midfielders — not the
+        // striker) delivering an actual named cross, some of the time, rather than every attacking
+        // moment reading as the same generic "pushing forward" text with no one in it.
+        const crosser = (xi) => { const w = (xi || []).filter((p) => p.position !== "GK" && p.position !== "FW"); return w.length ? w[Math.floor(Math.random() * w.length)] : null; };
+        if (attackingHome) {
+            const p = Math.random() < 0.4 ? crosser(homeXI) : null;
+            lines.push({ minute: null, text: p ? choice([`${p.name} whips a cross into the box for ${home.name}.`, `${p.name} sends one in from the flank for ${home.name}.`, `${p.name} looks up and picks out a cross for ${home.name}.`]) : commentaryLine(COMMENTARY_ATTACKING, home.name) });
+        }
+        else if (attackingAway) {
+            const p = Math.random() < 0.4 ? crosser(awayXI) : null;
+            lines.push({ minute: null, text: p ? choice([`${p.name} whips a cross into the box for ${away.name}.`, `${p.name} sends one in from the flank for ${away.name}.`, `${p.name} looks up and picks out a cross for ${away.name}.`]) : commentaryLine(COMMENTARY_ATTACKING, away.name) });
+        }
         else if (Math.random() < 0.5)
             lines.push({ minute: null, text: commentaryLine(COMMENTARY_NEUTRAL, null) });
         else {
@@ -2459,7 +2470,12 @@ function generateTickCommentary(seg, home, away, ballPosition) {
             // pressure, the same ballPosition the pitch view itself is drawn from, rather than a coin
             // flip that had a good chance of naming the team that WASN'T under any pressure at all.
             const underPressure = ballPosition > 0 ? away.name : ballPosition < 0 ? home.name : (Math.random() < 0.5 ? home.name : away.name);
-            lines.push({ minute: null, text: commentaryLine(COMMENTARY_DEFENSIVE, underPressure) });
+            // The team named is whoever is DEFENDING under pressure — a tackle, if named, is credited to
+            // one of THEIR players winning the ball back, not the side doing the attacking.
+            const defenderXI = underPressure === home.name ? homeXI : awayXI;
+            const tackler = (defenderXI || []).filter((p) => p.position === "DF" || p.position === "MF");
+            const p = Math.random() < 0.4 && tackler.length ? tackler[Math.floor(Math.random() * tackler.length)] : null;
+            lines.push({ minute: null, text: p ? choice([`${p.name} nips in with a strong tackle to break up the attack.`, `${p.name} reads it well and intercepts.`, `A crucial interception from ${p.name} snuffs out the danger.`]) : commentaryLine(COMMENTARY_DEFENSIVE, underPressure) });
         }
     }
     return lines;
@@ -3185,7 +3201,7 @@ function StatBar({ label, value }) {
         React.createElement("div", { className: "h-1.5 rounded-full overflow-hidden", style: { backgroundColor: C.cardAlt } },
             React.createElement("div", { className: "h-full", style: { width: `${value}%`, background: `linear-gradient(90deg, ${C.green}, ${C.amber})` } }))));
 }
-function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosition, homeName, awayName, secondHalf, minute, reduceMotion, commentary, homeKit, awayKit }) {
+function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosition, ballWidth, homeName, awayName, secondHalf, minute, reduceMotion, commentary, homeKit, awayKit }) {
     // Real formation shape, own half only — this is the version that actually matched the Squad
     // setup screen and didn't collide. Teams swap ends at half-time, same as a real match.
     function slotDots(xi, formation, onRight) {
@@ -3219,6 +3235,9 @@ function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosi
     // shows the ball going into the scoring team's own net, since the goals moved but the ball's
     // left/right math didn't.
     const ballLeft = 50 + (ballPosition ?? 0) / 2 * (secondHalf ? -1 : 1);
+    // Unlike depth, width doesn't flip at half-time — both teams still defend the same left/right
+    // sides of the pitch after swapping ends, only which goal they're attacking changes.
+    const ballTopTarget = clamp(50 + (ballWidth ?? 0) / 2, 8, 92);
     // Not a real tactical simulation — nobody is actually running to intercept or mark anyone. Each
     // player gets a small, deterministic drift around their formation slot (seeded on their id + the
     // minute, so it's stable within a render but shifts frame to frame), plus a pull toward wherever
@@ -3253,24 +3272,19 @@ function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosi
             const cappedAdvance = Math.min(advance, reach);
             x = attacksRight ? cappedAdvance : 100 - cappedAdvance;
         }
-        const y = clamp(d.y + Math.sin(angle) * mag * 0.6 + (ballTop0 - d.y) * pull, 6, 94);
+        const y = clamp(d.y + Math.sin(angle) * mag * 0.6 + (ballTopTarget - d.y) * pull, 6, 94);
         return { ...d, x, y };
     }
-    let ballTop0 = 50, bestDist0 = Infinity;
-    [...homeDots, ...awayDots].forEach((d) => {
-        const dist = Math.abs(d.x - ballLeft);
-        if (dist < bestDist0) {
-            bestDist0 = dist;
-            ballTop0 = d.y;
-        }
-    });
     const allDots = [...homeDots, ...awayDots].map(wobbled);
-    let ballTop = 50, nearestPlayer = null, bestDist = Infinity;
+    // The ball's own on-screen spot now comes straight from the width signal, the same as its
+    // left/right spot already comes straight from ballPosition — nearestPlayer is kept on purely to
+    // decide whether there's a caption bar to show at all, and as its fallback label.
+    const ballTop = ballTopTarget;
+    let nearestPlayer = null, bestDist = Infinity;
     allDots.forEach((d) => {
         const dist = Math.abs(d.x - ballLeft);
         if (dist < bestDist) {
             bestDist = dist;
-            ballTop = d.y;
             nearestPlayer = d;
         }
     });
@@ -3280,10 +3294,10 @@ function MatchPitchView({ homeXI, awayXI, homeFormation, awayFormation, ballPosi
             React.createElement("div", { style: { position: "absolute", top: "50%", left: "50%", width: 60, height: 60, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.35)", transform: "translate(-50%,-50%)" } }),
             React.createElement("div", { className: "absolute", style: { left: 2, top: "28%", width: 8, height: "44%", border: "2px solid rgba(255,255,255,0.35)", borderLeft: "none" } }),
             React.createElement("div", { className: "absolute", style: { right: 2, top: "28%", width: 8, height: "44%", border: "2px solid rgba(255,255,255,0.35)", borderRight: "none" } }),
-            allDots.map((d, i) => (React.createElement("div", { key: `${d.team}-${i}`, className: "absolute flex flex-col items-center", style: { left: `${d.x}%`, top: `${d.y}%`, transform: "translate(-50%,-50%)", transition: "left 0.9s ease-in-out, top 0.9s ease-in-out" } },
+            allDots.map((d, i) => (React.createElement("div", { key: `${d.team}-${i}`, className: "absolute flex flex-col items-center", style: { left: `${d.x}%`, top: `${d.y}%`, transform: "translate(-50%,-50%)", transition: "left 1.2s ease-in-out, top 1.2s ease-in-out" } },
                 React.createElement("div", { className: "rounded-full flex items-center justify-center text-[8px] font-black", style: { width: 17, height: 17, backgroundColor: d.team === "home" ? (homeKit?.primary || C.green) : (awayKit?.primary || C.amber), border: `1.5px solid ${d.team === "home" ? (homeKit?.secondary || "#FFFFFF") : (awayKit?.secondary || "#FFFFFF")}`, color: d.team === "home" ? (homeKit?.secondary || "#FFFFFF") : (awayKit?.secondary || "#FFFFFF") } }, d.player.jerseyNumber ?? ""),
                 React.createElement("div", { className: "text-[7px] font-bold text-white mt-0.5 whitespace-nowrap", style: { textShadow: "0 0 2px rgba(0,0,0,0.8)" } }, d.player.name.split(" ").slice(-1)[0])))),
-            React.createElement("div", { style: { position: "absolute", top: `${ballTop}%`, left: `${ballLeft}%`, transform: "translate(-50%, -140%)", transition: "left 0.85s linear, top 0.85s linear", fontSize: 16, zIndex: 10 } }, "\u26BD")),
+            React.createElement("div", { style: { position: "absolute", top: `${ballTop}%`, left: `${ballLeft}%`, transform: "translate(-50%, -140%)", transition: "left 1.15s linear, top 1.15s linear", fontSize: 16, zIndex: 10 } }, "\u26BD")),
         nearestPlayer && (React.createElement("div", { className: "py-1.5 px-2 text-[10px] font-bold text-center", style: { backgroundColor: "rgba(0,0,0,0.35)", color: "#FFFFFF", minHeight: 20 } }, commentary && commentary[0] ? commentary[0].text : `⚽ ${nearestPlayer.player.name}`)),
         React.createElement("div", { className: "flex items-center justify-between px-3 py-1.5 text-[9px] font-bold", style: { backgroundColor: "rgba(0,0,0,0.2)", color: "#FFFFFF" } },
             React.createElement("span", null,
@@ -3456,6 +3470,7 @@ function Pitch({ club, squadPlayers, onAssign, onSetInstruction }) {
                     React.createElement("div", { className: "text-[10px] font-bold", style: { color: C.sub } },
                         "ASSIGN ",
                         activeSlot?.pos,
+                        activeSlot && activeSlot.pos !== "GK" && (activeSlot.x < 33 ? " (left side)" : activeSlot.x > 67 ? " (right side)" : ""),
                         " \u2014 TAP A PLAYER"),
                     React.createElement("button", { onClick: () => setOpenSlot(null), style: { color: C.sub } },
                         React.createElement(Ico, { e: "\u2715", size: 16 }))),
@@ -3463,13 +3478,24 @@ function Pitch({ club, squadPlayers, onAssign, onSetInstruction }) {
                     const available = squadPlayers.filter((p) => !p.injuredWeeks);
                     const natural = available.filter((p) => p.position === activeSlot?.pos).sort((a, b) => b.overall - a.overall);
                     const outOfPos = available.filter((p) => p.position !== activeSlot?.pos).sort((a, b) => b.overall - a.overall);
+                    // No separate left/right positions to filter by, but a slot near a touchline is still a real
+                    // clue: a left-footed player tends to suit the left side and a right-footer the right (cutting
+                    // inside off their stronger foot, or hugging the line with it), so surface preferred foot right
+                    // next to the slot's own side, rather than making the manager go check each profile separately.
+                    const slotSide = activeSlot && activeSlot.pos !== "GK" ? (activeSlot.x < 33 ? "Left" : activeSlot.x > 67 ? "Right" : null) : null;
+                    const footFits = (foot) => slotSide && foot && (foot === slotSide || foot === "Both");
                     const PlayerRow = (p) => (React.createElement("button", { key: p.id, onClick: () => { onAssign(openSlot, p.id); setOpenSlot(null); }, className: "w-full flex items-center justify-between text-xs px-2 py-1.5 rounded border", style: { borderColor: usedIds.has(p.id) ? C.amber : C.border, backgroundColor: "#FFFFFF" } },
                         React.createElement("span", { className: "font-semibold" },
                             p.name,
                             p.position !== activeSlot?.pos && React.createElement("span", { className: "font-normal", style: { color: C.sub } },
                                 " (",
                                 p.position,
-                                ")")),
+                                ")"),
+                            p.preferredFoot && React.createElement("span", { className: "font-normal", style: { color: footFits(p.preferredFoot) ? C.green : C.sub } },
+                                " \u00B7 ",
+                                p.preferredFoot,
+                                "-footed",
+                                footFits(p.preferredFoot) ? " ✓" : "")),
                         React.createElement("span", { style: { color: C.sub } },
                             "OVR ",
                             p.overall,
@@ -6417,9 +6443,13 @@ function App() {
         const problem = onlineFairPlayProblem(data);
         if (problem)
             throw new Error(problem);
-        const clubs = Object.fromEntries((data.world.clubs || []).map((c) => [c.id, c]));
-        const row = await onlineApi().create({ payload: data, seats: onlineSeatsFor(data.controlled, clubs), hostSeat, name });
-        await onlineOpenWith(row, data);
+        // Online games never have a preseason of their own (there'd be no clean way to decide which
+        // manager presses "Start the Season" for everyone) — if the save being carried over happened
+        // to still be mid-preseason locally, that ends here, not partway into an online game.
+        const payload = data.preseason ? { ...data, preseason: false, preseasonFriendliesLeft: 0 } : data;
+        const clubs = Object.fromEntries((payload.world.clubs || []).map((c) => [c.id, c]));
+        const row = await onlineApi().create({ payload, seats: onlineSeatsFor(payload.controlled, clubs), hostSeat, name });
+        await onlineOpenWith(row, payload);
     }
     async function onlineJoinGame(code, seat, name) {
         const api = onlineApi();
@@ -6963,6 +6993,15 @@ function App() {
             onlineBlocked();
             return;
         }
+        // The Play tab is the only place that's supposed to offer a real fixture during preseason (it
+        // doesn't — it shows the preseason panel instead), but a real fixture can also be reached
+        // directly from the league table or a cup bracket. Guard the one place that actually starts a
+        // match, not just the one screen that was built to hide the button — a friendly is exempt,
+        // since preseason is built entirely around being able to play those.
+        if (preseason && !isFriendly) {
+            setNews((n) => [{ id: uid("n"), text: "It's still preseason — press Start the Season on the Play tab before competitive fixtures kick off.", clubIds: [], week, season }, ...n].slice(0, 150));
+            return;
+        }
         lastCmdId.current = 0;
         // Refuse to start a match for either side if a controlled club hasn't chosen a formation
         // yet, or has a formation but hasn't actually filled every slot — otherwise xiFromLineup's
@@ -7023,7 +7062,7 @@ function App() {
                 minute: 0, events: [], injuries: [], subsLeftHome: 5, subsLeftAway: 5, atHalftime: false,
                 playerStats: {}, stamina, homeFormation: home.formation, awayFormation: away.formation,
                 homeTempo: home.tempo || "balanced", awayTempo: away.tempo || "balanced",
-                homePressing: home.pressing || "medium", awayPressing: away.pressing || "medium", ballPosition: 0,
+                homePressing: home.pressing || "medium", awayPressing: away.pressing || "medium", ballPosition: 0, ballWidth: 0,
                 homePossession: 0, awayPossession: 0, weather: rollWeather(), h2h: h2hFor(fixtureOrTie, isFriendly),
             });
             setSubPanel(null);
@@ -7125,7 +7164,7 @@ function App() {
             const homeCards = applyCards(afterInjuriesM, homeCardEvts, "home");
             const afterHomeCardsM = { ...afterInjuriesM, homeXI: homeCards.xi, cardPenalties: homeCards.cardPenalties, matchCards: homeCards.matchCards };
             const awayCards = applyCards(afterHomeCardsM, awayCardEvts, "away");
-            const newEvents = [...m.events, ...seg.events.filter((e) => e.kind !== "shot"), ...homeRes.extraEvents, ...awayRes.extraEvents, ...homeCards.extraEvents, ...awayCards.extraEvents];
+            const newEvents = [...m.events, ...seg.events.filter((e) => e.kind !== "shot" && e.kind !== "corner-deliver" && e.kind !== "corner-resolve"), ...homeRes.extraEvents, ...awayRes.extraEvents, ...homeCards.extraEvents, ...awayCards.extraEvents];
             const reachedHalf = m.minute < 45 && to >= 45;
             const reachedFull = to >= 90;
             const playerStats = { ...m.playerStats };
@@ -7170,10 +7209,48 @@ function App() {
                 const advance = quality === "big" ? 88 : quality === "good" ? 74 : quality === "speculative" ? 48 : 62;
                 ballPosition = shotThisTick.teamId === m.homeId ? advance : -advance;
             }
-            if (goalThisTick)
-                ballPosition = goalThisTick.teamId === m.homeId ? 99 : -99;
+            if (goalThisTick) {
+                // How close to the goal line the ball actually snaps to now follows the goal's own
+                // chance type — the same "big" / "good" / "regular" / "speculative" tiers the
+                // commentary already names ("makes no mistake from close range" vs "lets fly from
+                // distance"), so a genuine long-range strike is shown coming from distance rather
+                // than every goal, whatever kind it was, snapping to the same spot on the line.
+                const goalAdvance = goalThisTick.chance === "big" ? 95 : goalThisTick.chance === "good" ? 85 : goalThisTick.chance === "speculative" ? 58 : 72;
+                ballPosition = goalThisTick.teamId === m.homeId ? goalAdvance : -goalAdvance;
+            }
             const kickoffPending = !!goalThisTick;
-            const newCommentary = generateTickCommentary(seg, home, away, ballPosition);
+            // A corner is its own short, contained moment rather than just a mention: the tick after
+            // one is won, the ball actually goes to the flag and stays there while it's delivered; the
+            // tick after that, it's resolved — usually cleared, occasionally straight back to another
+            // shot at goal if a real one happens to land that tick anyway. A genuine goal or shot always
+            // takes priority over a leftover corner from the tick before, the same way one already
+            // overrides the kickoff reset above.
+            let cornerPending = null;
+            if (m.cornerPending && m.cornerPending.stage === 1 && !shotThisTick && !goalThisTick) {
+                const teamName = m.cornerPending.teamId === m.homeId ? home.name : away.name;
+                seg.events.push({ minute: m.minute, kind: "corner-resolve", teamId: m.cornerPending.teamId, text: choice([`${teamName} can't make the corner count — headed behind for a throw.`, `The delivery is punched clear.`, `A crowded box, but the defence deals with it.`, `Cleared as far as the edge of the box.`]) });
+                ballPosition = m.cornerPending.teamId === m.homeId ? 78 : -78;
+            }
+            else if (shotThisTick && shotThisTick.corner) {
+                cornerPending = { teamId: shotThisTick.teamId, stage: 1 };
+            }
+            const showingCornerFlag = cornerPending && cornerPending.stage === 1;
+            if (showingCornerFlag) {
+                const teamName = cornerPending.teamId === m.homeId ? home.name : away.name;
+                seg.events.push({ minute: (shotThisTick || goalThisTick || { minute: m.minute + 1 }).minute, kind: "corner-deliver", teamId: cornerPending.teamId, text: `📐 ${teamName} swing the corner in...` });
+                ballPosition = cornerPending.teamId === m.homeId ? 98 : -98;
+            }
+            // Width — where play is across the pitch, left to right — is tracked completely separately
+            // from how far up the pitch it is. Without this, the ball (and everyone pulled toward it)
+            // only ever really moved end to end; the game never had a concept of a move building down
+            // one flank versus the other, so wide players had nothing genuine drawing them wide. It
+            // drifts more slowly than end-to-end position — real play doesn't swap flanks anywhere near
+            // as often as it surges forward and back — and, like depth, resets to dead centre for a
+            // kickoff rather than carrying over from wherever it happened to be.
+            const ballWidth = showingCornerFlag
+                ? ((m.ballWidth ?? 0) >= 0 ? 100 : -100) // whichever touchline is already nearer — the corner taken from that side
+                : m.kickoffPending ? 0 : clamp((m.ballWidth ?? 0) * 0.87 + (Math.random() - 0.5) * 70, -100, 100);
+            const newCommentary = generateTickCommentary(seg, home, away, ballPosition, m.homeXI, m.awayXI);
             const commentary = [...newCommentary.reverse(), ...(m.commentary || [])].slice(0, 40);
             // possession — a probabilistic share each tick based on the same pressure signal,
             // damped so it stays in a believable range rather than swinging to extremes
@@ -7203,7 +7280,7 @@ function App() {
                 cardPenalties: awayCards.cardPenalties, matchCards: awayCards.matchCards,
                 injuries: awayRes.injuries, atHalftime: reachedHalf,
                 running: (reachedHalf || reachedFull) ? false : m.running,
-                playerStats, stamina, ballPosition, kickoffPending, homePossession, awayPossession, penaltyShootout, commentary,
+                playerStats, stamina, ballPosition, ballWidth, kickoffPending, cornerPending: showingCornerFlag ? cornerPending : null, homePossession, awayPossession, penaltyShootout, commentary,
             };
         });
     }
@@ -7308,7 +7385,7 @@ function App() {
             flashOnline(`Waiting for ${(opp && opp.name) || "the other manager"}'s half-time team talk (or ${Math.ceil((H2H_WAIT_MS - (Date.now() - cur.h2h.halfAt)) / 1000)} s)…`);
             return;
         }
-        setActiveMatch((m) => (m ? { ...m, atHalftime: false, running: true, ballPosition: 0 } : m));
+        setActiveMatch((m) => (m ? { ...m, atHalftime: false, running: true, ballPosition: 0, ballWidth: 0 } : m));
         setSubPanel(null);
     }
     function giveTeamTalk(side, tone) {
@@ -11614,7 +11691,7 @@ function App() {
                                 "'"),
                             c.text))))),
                     React.createElement("div", { className: (matchViewTab === "pitch" ? "" : "hidden lg:block") + " mb-4" },
-                        React.createElement(MatchPitchView, { homeXI: m.homeXI, awayXI: m.awayXI, homeFormation: m.homeFormation, awayFormation: m.awayFormation, ballPosition: m.ballPosition, homeName: home.name, awayName: away.name, secondHalf: m.minute >= 45, minute: m.minute, reduceMotion: reducePitchMotion, commentary: m.commentary, homeKit: kitFor(home, true), awayKit: kitFor(away, false) }))),
+                        React.createElement(MatchPitchView, { homeXI: m.homeXI, awayXI: m.awayXI, homeFormation: m.homeFormation, awayFormation: m.awayFormation, ballPosition: m.ballPosition, ballWidth: m.ballWidth, homeName: home.name, awayName: away.name, secondHalf: m.minute >= 45, minute: m.minute, reduceMotion: reducePitchMotion, commentary: m.commentary, homeKit: kitFor(home, true), awayKit: kitFor(away, false) }))),
                 React.createElement(React.Fragment, null,
                     (matchViewTab === "stats" || isDesktop) && (() => {
                         const totalPoss = (m.homePossession || 0) + (m.awayPossession || 0);
@@ -12832,7 +12909,7 @@ function App() {
                             f.played ? React.createElement("span", { className: "text-xs font-bold" },
                                 f.homeGoals,
                                 " - ",
-                                f.awayGoals) : isNext ? React.createElement("button", { onClick: () => openMatch(f, false), className: "text-[10px] font-bold px-2.5 py-1 rounded", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "PLAY") : React.createElement("span", { className: "text-[10px]", style: { color: C.sub } }, "Upcoming"))));
+                                f.awayGoals) : isNext && !preseason ? React.createElement("button", { onClick: () => openMatch(f, false), className: "text-[10px] font-bold px-2.5 py-1 rounded", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "PLAY") : React.createElement("span", { className: "text-[10px]", style: { color: C.sub } }, isNext ? "Preseason" : "Upcoming"))));
                 })))),
             tab === "market" && world && (React.createElement("div", { className: "lg:grid lg:grid-cols-[420px_1fr] lg:gap-4 lg:items-start" },
                 React.createElement("div", { className: marketPlayerId ? "hidden lg:block" : "" },
@@ -13142,7 +13219,7 @@ function App() {
                                             t.penaltyScore.home,
                                             "-",
                                             t.penaltyScore.away,
-                                            " pens)") : "") : isMine ? React.createElement("button", { onClick: () => openMatch(t, true), className: "text-[10px] font-bold px-2.5 py-1 rounded", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "PLAY") : React.createElement("span", { className: "text-[10px]", style: { color: C.sub } }, "Pending")));
+                                            " pens)") : "") : isMine && !preseason ? React.createElement("button", { onClick: () => openMatch(t, true), className: "text-[10px] font-bold px-2.5 py-1 rounded", style: { backgroundColor: C.amber, color: "#FFFFFF" } }, "PLAY") : React.createElement("span", { className: "text-[10px]", style: { color: C.sub } }, isMine ? "Preseason" : "Pending")));
                             }),
                             !cupObj?.champion && roundTies.ties.length === 0 && React.createElement("div", { className: "text-xs italic", style: { color: C.sub } }, "Waiting on the next round to be drawn."))))));
             })(),
